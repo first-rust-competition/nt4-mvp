@@ -3,11 +3,11 @@
 //! **Value** updates in NTv4 are sent as WS Binary messages, and are encoded with the Compact Binary Object Representation (CBOR)
 //! as defined in RFC 7049.
 
+use crate::text::DataType;
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Serialize};
 use serde_cbor::tags::Tagged;
 use serde_cbor::{Deserializer, Serializer, Value};
-use crate::text::DataType;
 
 macro_rules! impl_conversion {
     ($self:ident, $($inst:ident),+) => {
@@ -47,7 +47,21 @@ pub enum NTValue {
 
 impl NTValue {
     fn data_type(&self) -> DataType {
-        impl_conversion!(self, Boolean, Double, Integer, Float, String, Raw, RPC, BooleanArray, DoubleArray, IntegerArray, FloatArray, StringArray)
+        impl_conversion!(
+            self,
+            Boolean,
+            Double,
+            Integer,
+            Float,
+            String,
+            Raw,
+            RPC,
+            BooleanArray,
+            DoubleArray,
+            IntegerArray,
+            FloatArray,
+            StringArray
+        )
     }
 }
 
@@ -143,9 +157,9 @@ impl CborMessage {
                                 18 => DataType::IntegerArray,
                                 19 => DataType::FloatArray,
                                 20 => DataType::StringArray,
-                                _ => panic!("Invalid type value")
-                            }
-                            _ => panic!("Invalid type type")
+                                _ => panic!("Invalid type value"),
+                            },
+                            _ => panic!("Invalid type type"),
                         };
 
                         let value = match &values[2] {
@@ -237,9 +251,9 @@ impl CborMessage {
                                 18 => DataType::IntegerArray,
                                 19 => DataType::FloatArray,
                                 20 => DataType::StringArray,
-                                _ => panic!("Invalid type value")
-                            }
-                            _ => panic!("Invalid type type")
+                                _ => panic!("Invalid type value"),
+                            },
+                            _ => panic!("Invalid type type"),
                         };
 
                         let value = match &values[3] {
@@ -467,13 +481,11 @@ mod tests {
         let msg = CborMessage {
             id: 5,
             timestamp: Some(12345),
-            value: NTValue::Double(4.2)
+            value: NTValue::Double(4.2),
         };
-
 
         let v = serde_cbor::to_vec(&msg).unwrap();
         let msg2 = CborMessage::from_slice(&v[..]);
-
 
         assert_eq!(msg, msg2[0]);
     }
