@@ -221,21 +221,35 @@ impl NTMessage {
 
 #[cfg(test)]
 mod tests {
-    use crate::text::{NTMessage, MessageType, MessageValue, DataType, MessageBody};
-    use crate::text::publish::{PublishReq, PublishAck};
+    use crate::text::publish::{PublishAck, PublishReq};
+    use crate::text::{DataType, MessageBody, MessageType, MessageValue, NTMessage};
 
     #[test]
     fn test_de() {
         let msg = r#"{"type":"publish", "data": {"name": "/foo", "type": "integer"}}"#;
         let msg = serde_json::from_str::<NTMessage>(msg).unwrap();
         assert_eq!(msg._type, MessageType::PublishReq);
-        assert_eq!(msg.data(), MessageValue::PublishReq(PublishReq { name: "/foo".to_string(), _type: DataType::Integer, options: None }));
+        assert_eq!(
+            msg.data(),
+            MessageValue::PublishReq(PublishReq {
+                name: "/foo".to_string(),
+                _type: DataType::Integer,
+                options: None
+            })
+        );
     }
 
     #[test]
     fn test_ser() {
-        let msg = PublishAck { name: "/foo".to_string(), _type: DataType::Integer, id: 42 };
+        let msg = PublishAck {
+            name: "/foo".to_string(),
+            _type: DataType::Integer,
+            id: 42,
+        };
 
-        assert_eq!(serde_json::to_string(&msg.into_message()).unwrap(), r#"{"type":"puback","data":{"id":42,"name":"/foo","type":"integer"}}"#)
+        assert_eq!(
+            serde_json::to_string(&msg.into_message()).unwrap(),
+            r#"{"type":"puback","data":{"id":42,"name":"/foo","type":"integer"}}"#
+        )
     }
 }
