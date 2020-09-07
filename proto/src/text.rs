@@ -143,6 +143,8 @@ pub enum DataType {
     Boolean,
     /// Represents a sequence of raw bytes
     Raw,
+    /// Represents a Remote Procedure Call declaration
+    RPC,
     /// Represents a sequence of bytes representing a String
     String,
     /// Represents a signed 64-bit integer
@@ -166,6 +168,25 @@ pub enum DataType {
     /// Represents an array of Doubles
     #[serde(rename = "double[]")]
     DoubleArray,
+}
+
+impl Into<u8> for DataType {
+    fn into(self) -> u8 {
+        match self {
+            DataType::Boolean => 0,
+            DataType::Double => 1,
+            DataType::Integer => 2,
+            DataType::Float => 3,
+            DataType::String => 4,
+            DataType::Raw => 5,
+            DataType::RPC => 6,
+            DataType::BooleanArray => 16,
+            DataType::DoubleArray => 17,
+            DataType::IntegerArray => 18,
+            DataType::FloatArray => 19,
+            DataType::StringArray => 20,
+        }
+    }
 }
 
 /// The most generic struct representing a textual message transmitted in NT4

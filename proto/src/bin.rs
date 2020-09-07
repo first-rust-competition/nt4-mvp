@@ -7,28 +7,48 @@ use serde::ser::SerializeSeq;
 use serde::{Deserialize, Serialize};
 use serde_cbor::tags::Tagged;
 use serde_cbor::{Deserializer, Serializer, Value};
+use crate::text::DataType;
+
+macro_rules! impl_conversion {
+    ($self:ident, $($inst:ident),+) => {
+        match $self {
+            $(
+            NTValue::$inst(_) => DataType::$inst,
+            )+
+        }
+    }
+}
 
 /// A NetworkTables value
 #[derive(PartialEq, Debug)]
 pub enum NTValue {
     /// An integer value. This value stores both signed and unsigned integers in an `i64`
     Integer(i64),
+    Float(f32),
     /// A floating-point value. This value represents both single and double precision floats, and is stored in an `f64`
     Double(f64),
     /// A boolean value
     Boolean(bool),
     /// A Raw value, stored as a Vec of the raw bytes
     Raw(Vec<u8>),
+    RPC(Vec<u8>),
     /// A String value
     String(String),
     /// An Array of booleans
     BooleanArray(Vec<bool>),
     /// An Array of integers
     IntegerArray(Vec<i64>),
+    FloatArray(Vec<f32>),
     /// An Array of floating-point numbers
     DoubleArray(Vec<f64>),
     /// An Array of strings
     StringArray(Vec<String>),
+}
+
+impl NTValue {
+    fn data_type(&self) -> DataType {
+        impl_conversion!(self, Boolean, Double, Integer, Float, String, Raw, RPC, BooleanArray, DoubleArray, IntegerArray, FloatArray, StringArray)
+    }
 }
 
 impl Serialize for NTValue {
@@ -38,42 +58,17 @@ impl Serialize for NTValue {
     {
         match self {
             NTValue::Integer(i) => i.serialize(s),
+            NTValue::Float(f) => f.serialize(s),
             NTValue::Double(f) => f.serialize(s),
             NTValue::Boolean(b) => b.serialize(s),
             NTValue::Raw(bytes) => s.serialize_bytes(&bytes[..]),
+            NTValue::RPC(bytes) => s.serialize_bytes(&bytes[..]),
             NTValue::String(st) => st.serialize(s),
-            NTValue::BooleanArray(bs) => {
-                if bs.len() == 0 {
-                    let tagged = Tagged::new(Some(6), bs);
-                    tagged.serialize(s)
-                } else {
-                    bs.serialize(s)
-                }
-            }
-            NTValue::IntegerArray(is) => {
-                if is.len() == 0 {
-                    let tagged = Tagged::new(Some(7), is);
-                    tagged.serialize(s)
-                } else {
-                    is.serialize(s)
-                }
-            }
-            NTValue::DoubleArray(fs) => {
-                if fs.len() == 0 {
-                    let tagged = Tagged::new(Some(9), fs);
-                    tagged.serialize(s)
-                } else {
-                    fs.serialize(s)
-                }
-            }
-            NTValue::StringArray(ss) => {
-                if ss.len() == 0 {
-                    let tagged = Tagged::new(Some(10), ss);
-                    tagged.serialize(s)
-                } else {
-                    ss.serialize(s)
-                }
-            }
+            NTValue::BooleanArray(bs) => bs.serialize(s),
+            NTValue::IntegerArray(is) => is.serialize(s),
+            NTValue::DoubleArray(fs) => fs.serialize(s),
+            NTValue::FloatArray(fs) => fs.serialize(s),
+            NTValue::StringArray(ss) => ss.serialize(s),
         }
     }
 }
@@ -102,14 +97,16 @@ impl Serialize for CborMessage {
         S: serde::Serializer,
     {
         if let Some(ts) = self.timestamp {
-            let mut seq = serializer.serialize_seq(Some(3))?;
+            let mut seq = serializer.serialize_seq(Some(4))?;
             seq.serialize_element(&self.id)?;
             seq.serialize_element(&ts)?;
+            seq.serialize_element::<u8>(&self.value.data_type().into())?;
             seq.serialize_element(&self.value)?;
             seq.end()
         } else {
-            let mut seq = serializer.serialize_seq(Some(2))?;
+            let mut seq = serializer.serialize_seq(Some(3))?;
             seq.serialize_element(&self.id)?;
+            seq.serialize_element::<u8>(&self.value.data_type().into())?;
             seq.serialize_element(&self.value)?;
             seq.end()
         }
@@ -131,15 +128,34 @@ impl CborMessage {
                         val => panic!("Invalid id type {:?}", val),
                     };
 
-                    if values.len() == 2 {
-                        let value = match &values[1] {
+                    if values.len() == 3 {
+                        let ty = match &values[1] {
+                            Value::Integer(i) => match i {
+                                0 => DataType::Boolean,
+                                1 => DataType::Double,
+                                2 => DataType::Integer,
+                                3 => DataType::Float,
+                                4 => DataType::String,
+                                5 => DataType::Raw,
+                                6 => DataType::RPC,
+                                16 => DataType::BooleanArray,
+                                17 => DataType::DoubleArray,
+                                18 => DataType::IntegerArray,
+                                19 => DataType::FloatArray,
+                                20 => DataType::StringArray,
+                                _ => panic!("Invalid type value")
+                            }
+                            _ => panic!("Invalid type type")
+                        };
+
+                        let value = match &values[2] {
                             Value::Integer(i) => NTValue::Integer(*i as i64),
                             Value::Float(f) => NTValue::Double(*f),
                             Value::Bool(b) => NTValue::Boolean(*b),
                             Value::Bytes(b) => NTValue::Raw(b.clone()),
                             Value::Text(s) => NTValue::String(s.clone()),
-                            Value::Array(v) => match &v[0] {
-                                Value::Float(_) => NTValue::DoubleArray(
+                            Value::Array(v) => match &ty {
+                                DataType::DoubleArray => NTValue::DoubleArray(
                                     v.clone()
                                         .into_iter()
                                         .map(|value| {
@@ -151,7 +167,7 @@ impl CborMessage {
                                         })
                                         .collect(),
                                 ),
-                                Value::Integer(_) => NTValue::IntegerArray(
+                                DataType::IntegerArray => NTValue::IntegerArray(
                                     v.clone()
                                         .into_iter()
                                         .map(|value| {
@@ -163,7 +179,7 @@ impl CborMessage {
                                         })
                                         .collect(),
                                 ),
-                                Value::Bool(_) => NTValue::BooleanArray(
+                                DataType::BooleanArray => NTValue::BooleanArray(
                                     v.clone()
                                         .into_iter()
                                         .map(|value| {
@@ -175,7 +191,7 @@ impl CborMessage {
                                         })
                                         .collect(),
                                 ),
-                                Value::Text(_) => NTValue::StringArray(
+                                DataType::StringArray => NTValue::StringArray(
                                     v.clone()
                                         .into_iter()
                                         .map(|value| {
@@ -189,21 +205,12 @@ impl CborMessage {
                                 ),
                                 _ => panic!("Invalid array type"),
                             },
-                            Value::Tag(tag, v) => {
-                                if let Value::Array(_) = **v {
-                                    match *tag {
-                                        6 => NTValue::BooleanArray(vec![]),
-                                        7 => NTValue::IntegerArray(vec![]),
-                                        8 | 9 => NTValue::DoubleArray(vec![]),
-                                        10 => NTValue::StringArray(vec![]),
-                                        _ => panic!("Invalid tag"),
-                                    }
-                                } else {
-                                    panic!("Invalid tagged value")
-                                }
-                            }
                             _ => panic!("Invalid value"),
                         };
+
+                        if ty != value.data_type() {
+                            panic!("Types not matching");
+                        }
 
                         messages.push(Self {
                             id,
@@ -216,14 +223,33 @@ impl CborMessage {
                             _ => panic!("Invalid timestamp type"),
                         };
 
-                        let value = match &values[2] {
+                        let ty = match &values[2] {
+                            Value::Integer(i) => match i {
+                                0 => DataType::Boolean,
+                                1 => DataType::Double,
+                                2 => DataType::Integer,
+                                3 => DataType::Float,
+                                4 => DataType::String,
+                                5 => DataType::Raw,
+                                6 => DataType::RPC,
+                                16 => DataType::BooleanArray,
+                                17 => DataType::DoubleArray,
+                                18 => DataType::IntegerArray,
+                                19 => DataType::FloatArray,
+                                20 => DataType::StringArray,
+                                _ => panic!("Invalid type value")
+                            }
+                            _ => panic!("Invalid type type")
+                        };
+
+                        let value = match &values[3] {
                             Value::Integer(i) => NTValue::Integer(*i as i64),
                             Value::Float(f) => NTValue::Double(*f),
                             Value::Bool(b) => NTValue::Boolean(*b),
                             Value::Bytes(b) => NTValue::Raw(b.clone()),
                             Value::Text(s) => NTValue::String(s.clone()),
-                            Value::Array(v) => match &v[0] {
-                                Value::Float(_) => NTValue::DoubleArray(
+                            Value::Array(v) => match &ty {
+                                DataType::DoubleArray => NTValue::DoubleArray(
                                     v.clone()
                                         .into_iter()
                                         .map(|value| {
@@ -235,7 +261,7 @@ impl CborMessage {
                                         })
                                         .collect(),
                                 ),
-                                Value::Integer(_) => NTValue::IntegerArray(
+                                DataType::IntegerArray => NTValue::IntegerArray(
                                     v.clone()
                                         .into_iter()
                                         .map(|value| {
@@ -247,7 +273,7 @@ impl CborMessage {
                                         })
                                         .collect(),
                                 ),
-                                Value::Bool(_) => NTValue::BooleanArray(
+                                DataType::BooleanArray => NTValue::BooleanArray(
                                     v.clone()
                                         .into_iter()
                                         .map(|value| {
@@ -259,7 +285,7 @@ impl CborMessage {
                                         })
                                         .collect(),
                                 ),
-                                Value::Text(_) => NTValue::StringArray(
+                                DataType::StringArray => NTValue::StringArray(
                                     v.clone()
                                         .into_iter()
                                         .map(|value| {
@@ -273,21 +299,12 @@ impl CborMessage {
                                 ),
                                 _ => panic!("Invalid array type"),
                             },
-                            Value::Tag(tag, v) => {
-                                if let Value::Array(_) = **v {
-                                    match *tag {
-                                        6 => NTValue::BooleanArray(vec![]),
-                                        7 => NTValue::IntegerArray(vec![]),
-                                        8 | 9 => NTValue::DoubleArray(vec![]),
-                                        10 => NTValue::StringArray(vec![]),
-                                        _ => panic!("Invalid tag"),
-                                    }
-                                } else {
-                                    panic!("Invalid tagged value")
-                                }
-                            }
                             _ => panic!("Invalid value"),
                         };
+
+                        if ty != value.data_type() {
+                            panic!("Types not matching");
+                        }
 
                         messages.push(Self {
                             id,
@@ -312,9 +329,10 @@ mod tests {
     #[test]
     fn test_single_message_stream() {
         let data = vec![
-            0x83, // array(3)
+            0x84, // array(4)
             0x18, 0x2A, // unsigned(42)
             0x1A, 0x49, 0x96, 0x02, 0xD2, // unsigned(1234567890)
+            0x10, // type: boolean[]
             0x83, // array(3)
             0xF5, // true
             0xF4, // false
@@ -338,22 +356,25 @@ mod tests {
     fn test_multi_message_stream() {
         let data = vec![
             // ITEM 1
-            0x83, // array(3)
+            0x84, // array(4)
             0x18, 0x2A, // unsigned(42)
             0x1A, 0x49, 0x96, 0x02, 0xD2, // unsigned(1234567890)
+            0x10, // Type: bool[]
             0x83, // array(3)
             0xF5, // true
             0xF4, // false
             0xF5, // true
             // ITEM 2
-            0x82, // array(2)
+            0x83, // array(3)
             0x18, 0x45, // unsigned(69)
+            0x04, // type: string
             0x65, // text
             0x48, 0x65, 0x6C, 0x6C, 0x6F, // Hello
             // ITEM 3
-            0x83, // array(3)
+            0x84, // array(4)
             0x19, 0x01, 0xA4, // unsigned(420)
             0x19, 0x16, 0x2E, // unsigned(5678)
+            0x12, // type: int[]
             0x84, // array(4)
             0x01, // unsigned(1)
             0x02, // unsigned(2)
@@ -396,9 +417,10 @@ mod tests {
     #[test]
     fn test_empty_array() {
         let data = vec![
-            0x82, // array(2)
+            0x83, // array(3)
             0x01, // unsigned(1)
-            0xCA, 0x80, // tagged(string[])
+            0x14, // type: string[]
+            0x80, // tagged(string[])
         ];
 
         let messages = CborMessage::from_slice(&data[..]);
@@ -424,7 +446,7 @@ mod tests {
 
         let v = serde_cbor::to_vec(&msg).unwrap();
 
-        assert_eq!(&v[..], &[0x82, 0x01, 0xC9, 0x80]);
+        assert_eq!(&v[..], &[0x83, 0x01, 0x11, 0x80]);
 
         let msg = CborMessage {
             id: 42,
@@ -436,7 +458,7 @@ mod tests {
 
         assert_eq!(
             &v[..],
-            &[0x83, 0x18, 0x2A, 0x19, 0x04, 0xD2, 0xF9, 0x3E, 0x00]
+            &[0x84, 0x18, 0x2A, 0x19, 0x04, 0xD2, 0x01, 0xF9, 0x3E, 0x00]
         );
     }
 
