@@ -2,17 +2,17 @@ use super::MessageBody;
 use crate::text::DataType;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct List {
     prefix: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Directory {
     items: Vec<DirectoryItem>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct DirectoryItem {
     name: String,
     id: u32,
@@ -21,18 +21,18 @@ pub struct DirectoryItem {
     persistent: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Listen {
     prefix: String,
     listenuid: u32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Unlisten {
     listenuid: u32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Announce {
     name: String,
     id: u32,
@@ -41,7 +41,7 @@ pub struct Announce {
     persistent: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Unannounce {
     name: String,
     id: u32,

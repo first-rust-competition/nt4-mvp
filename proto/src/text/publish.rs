@@ -1,29 +1,29 @@
 use super::{DataType, MessageBody};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct PublishReq {
-    name: String,
+    pub name: String,
     #[serde(rename = "type")]
-    _type: DataType,
-    options: Option<PublishRequestOptions>,
+    pub _type: DataType,
+    pub options: Option<PublishRequestOptions>,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
 #[serde(default)]
 pub struct PublishRequestOptions {
     persistent: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct PublishAck {
-    name: String,
+    pub name: String,
     #[serde(rename = "type")]
-    _type: String,
-    id: u32,
+    pub _type: DataType,
+    pub id: u32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct PublishRel {
     id: u32,
     delete: bool,

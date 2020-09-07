@@ -1,19 +1,19 @@
 use super::MessageBody;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct GetValues {
     ids: Vec<u32>,
     options: Option<GetValuesOptions>,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
 #[serde(default)]
 pub struct GetValuesOptions {
     timestamped: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Subscribe {
     ids: Vec<u32>,
     subuid: u32,
@@ -24,7 +24,7 @@ fn default_periodic() -> f64 {
     0.1
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
 #[serde(default)]
 pub struct SubscribeOptions {
     immediate: bool,
@@ -34,7 +34,7 @@ pub struct SubscribeOptions {
     timestamped: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Unsubscribe {
     subuid: u32,
 }
