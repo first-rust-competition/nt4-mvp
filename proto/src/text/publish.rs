@@ -1,13 +1,12 @@
-use serde::{Serialize, Deserialize};
-use super::{MessageBody, DataType};
-
+use super::{DataType, MessageBody};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct PublishReq {
     name: String,
     #[serde(rename = "type")]
     _type: DataType,
-    options: Option<PublishRequestOptions>
+    options: Option<PublishRequestOptions>,
 }
 
 #[derive(Serialize, Deserialize)]

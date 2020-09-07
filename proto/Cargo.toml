@@ -9,4 +9,4 @@ edition = "2018"
 [dependencies]
 serde = { version = "^1.0.115", features = ["derive"] }
 serde_json = "^1.0.57"
-serde_cbor = "^0.11.1"
+serde_cbor = { version = "^0.11.1", features = ["tags"] }

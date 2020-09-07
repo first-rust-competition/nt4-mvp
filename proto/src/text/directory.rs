@@ -1,6 +1,6 @@
-use serde::{Serialize, Deserialize};
 use super::MessageBody;
 use crate::text::DataType;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct List {

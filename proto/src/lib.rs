@@ -1,2 +1,2 @@
-
+mod bin;
 mod text;
