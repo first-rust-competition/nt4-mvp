@@ -9,7 +9,8 @@ pub struct PublishReq {
     options: Option<PublishRequestOptions>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct PublishRequestOptions {
     persistent: bool,
 }

@@ -7,7 +7,8 @@ pub struct GetValues {
     options: Option<GetValuesOptions>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct GetValuesOptions {
     timestamped: bool,
 }
@@ -19,9 +20,15 @@ pub struct Subscribe {
     options: Option<SubscribeOptions>,
 }
 
-#[derive(Serialize, Deserialize)]
+fn default_periodic() -> f64 {
+    0.1
+}
+
+#[derive(Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct SubscribeOptions {
     immediate: bool,
+    #[serde(default = "default_periodic")]
     periodic: f64,
     logging: bool,
     timestamped: bool,
