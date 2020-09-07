@@ -1,18 +1,33 @@
+//! This module handles the binary half of the NTv4 protocol.
+//!
+//! **Value** updates in NTv4 are sent as WS Binary messages, and are encoded with the Compact Binary Object Representation (CBOR)
+//! as defined in RFC 7049.
+
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Serialize};
 use serde_cbor::tags::Tagged;
 use serde_cbor::{Deserializer, Serializer, Value};
 
+/// A NetworkTables value
 #[derive(PartialEq, Debug)]
 pub enum NTValue {
+    /// An integer value. This value stores both signed and unsigned integers in an `i64`
     Integer(i64),
+    /// A floating-point value. This value represents both single and double precision floats, and is stored in an `f64`
     Double(f64),
+    /// A boolean value
     Boolean(bool),
+    /// A Raw value, stored as a Vec of the raw bytes
     Raw(Vec<u8>),
+    /// A String value
     String(String),
+    /// An Array of booleans
     BooleanArray(Vec<bool>),
+    /// An Array of integers
     IntegerArray(Vec<i64>),
+    /// An Array of floating-point numbers
     DoubleArray(Vec<f64>),
+    /// An Array of strings
     StringArray(Vec<String>),
 }
 
@@ -63,10 +78,21 @@ impl Serialize for NTValue {
     }
 }
 
+/// A message sent or recieved over CBOR
 #[derive(PartialEq, Debug)]
 pub struct CborMessage {
+    /// The ID associated with the given value
+    ///
+    /// This value is received from the textual half of the protocol, where its relation with a NetworkTables key is specified.
     id: u32,
+    /// An optional timestamp associated with this change
+    ///
+    /// This timestamp is represented in microseconds, though implementations can also choose to represent it with seconds using
+    /// a double-precision float.
+    ///
+    /// A timestamp is only sent with a value change when requested by the client, by default this value is not sent by the server
     timestamp: Option<u64>, // TODO: support FP timestamp
+    /// The value associated with this change
     value: NTValue,
 }
 
