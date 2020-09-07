@@ -439,4 +439,20 @@ mod tests {
             &[0x83, 0x18, 0x2A, 0x19, 0x04, 0xD2, 0xF9, 0x3E, 0x00]
         );
     }
+
+    #[test]
+    fn test_identity() {
+        let msg = CborMessage {
+            id: 5,
+            timestamp: Some(12345),
+            value: NTValue::Double(4.2)
+        };
+
+
+        let v = serde_cbor::to_vec(&msg).unwrap();
+        let msg2 = CborMessage::from_slice(&v[..]);
+
+
+        assert_eq!(msg, msg2[0]);
+    }
 }
