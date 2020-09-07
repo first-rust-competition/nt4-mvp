@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
-use serde_cbor::{Value, Deserializer};
+use serde_cbor::{Value, Deserializer, Serializer};
+use serde::ser::SerializeSeq;
+use serde_cbor::tags::Tagged;
 
 #[derive(PartialEq, Debug)]
 pub enum NTValue {
@@ -14,11 +16,66 @@ pub enum NTValue {
     StringArray(Vec<String>),
 }
 
+impl Serialize for NTValue {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error> where
+        S: serde::Serializer {
+        match self {
+            NTValue::Integer(i) => i.serialize(s),
+            NTValue::Double(f) => f.serialize(s),
+            NTValue::Boolean(b) => b.serialize(s),
+            NTValue::Raw(bytes) => s.serialize_bytes(&bytes[..]),
+            NTValue::String(st) => st.serialize(s),
+            NTValue::BooleanArray(bs) => if bs.len() == 0 {
+                let tagged = Tagged::new(Some(6), bs);
+                tagged.serialize(s)
+            } else {
+                bs.serialize(s)
+            },
+            NTValue::IntegerArray(is) => if is.len() == 0 {
+                let tagged = Tagged::new(Some(7), is);
+                tagged.serialize(s)
+            } else {
+                is.serialize(s)
+            },
+            NTValue::DoubleArray(fs) => if fs.len() == 0 {
+                let tagged = Tagged::new(Some(9), fs);
+                tagged.serialize(s)
+            } else {
+                fs.serialize(s)
+            },
+            NTValue::StringArray(ss) => if ss.len() == 0 {
+                let tagged = Tagged::new(Some(10), ss);
+                tagged.serialize(s)
+            } else {
+                ss.serialize(s)
+            }
+        }
+    }
+}
+
 #[derive(PartialEq, Debug)]
 pub struct CborMessage {
     id: u32,
     timestamp: Option<u64>, // TODO: support FP timestamp
     value: NTValue,
+}
+
+impl Serialize for CborMessage {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where
+        S: serde::Serializer {
+        if let Some(ts) = self.timestamp {
+            let mut seq = serializer.serialize_seq(Some(3))?;
+            seq.serialize_element(&self.id)?;
+            seq.serialize_element(&ts)?;
+            seq.serialize_element(&self.value)?;
+            seq.end()
+        } else {
+            let mut seq = serializer.serialize_seq(Some(2))?;
+            seq.serialize_element(&self.id)?;
+            seq.serialize_element(&self.value)?;
+            seq.end()
+        }
+    }
 }
 
 impl CborMessage {
@@ -311,5 +368,28 @@ mod tests {
             timestamp: None,
             value: NTValue::StringArray(vec![])
         })
+    }
+
+    #[test]
+    fn test_serialize() {
+        let msg = CborMessage {
+            id: 1,
+            timestamp: None,
+            value: NTValue::DoubleArray(vec![]),
+        };
+
+        let v = serde_cbor::to_vec(&msg).unwrap();
+
+        assert_eq!(&v[..], &[0x82, 0x01, 0xC9, 0x80]);
+
+        let msg = CborMessage {
+            id: 42,
+            timestamp: Some(1234),
+            value: NTValue::Double(1.5)
+        };
+
+        let v = serde_cbor::to_vec(&msg).unwrap();
+
+        assert_eq!(&v[..], &[0x83, 0x18, 0x2A, 0x19, 0x04, 0xD2, 0xF9, 0x3E, 0x00]);
     }
 }
