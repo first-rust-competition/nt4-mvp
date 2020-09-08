@@ -136,7 +136,7 @@ pub enum MessageValue {
 }
 
 /// An enum representation of the acceptable data types in NTv4
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum DataType {
     /// Represents a boolean, true or false
