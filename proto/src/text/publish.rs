@@ -60,9 +60,9 @@ pub struct PublishAck {
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct PublishRel {
     /// The ID of the NetworkTables entry
-    id: u32,
+    pub id: u32,
     /// Set when the client wishes for the server to delete this entry when this message is received.
-    delete: bool,
+    pub delete: bool,
 }
 
 impl_message!(PublishReq, PublishAck, PublishRel);

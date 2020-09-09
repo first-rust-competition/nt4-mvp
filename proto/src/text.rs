@@ -3,13 +3,14 @@ use crate::text::publish::{PublishAck, PublishRel, PublishReq};
 use crate::text::subscription::{GetValues, Subscribe, Unsubscribe};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use crate::bin::NTValue;
 
 macro_rules! impl_message {
     ($($name:ident),+) => {
         $(
         impl MessageBody for $name {
-            fn into_message(self) -> $crate::text::NTMessage {
-                $crate::text::NTMessage {
+            fn into_message(self) -> $crate::text::NTTextMessage {
+                $crate::text::NTTextMessage {
                     _type: $crate::text::MessageType::$name,
                     data: serde_json::to_value(self).unwrap()
                 }
@@ -19,12 +20,12 @@ macro_rules! impl_message {
     }
 }
 
-mod directory;
-mod publish;
-mod subscription;
+pub mod directory;
+pub mod publish;
+pub mod subscription;
 
 pub trait MessageBody {
-    fn into_message(self) -> NTMessage;
+    fn into_message(self) -> NTTextMessage;
 }
 
 /// The type of the message that is being sent or received
@@ -170,6 +171,25 @@ pub enum DataType {
     DoubleArray,
 }
 
+impl DataType {
+    pub fn default_value(&self) -> NTValue {
+        match self {
+            DataType::Integer => NTValue::Integer(0),
+            DataType::Boolean => NTValue::Boolean(false),
+            DataType::Raw => NTValue::Raw(vec![]),
+            DataType::RPC => NTValue::RPC(vec![]),
+            DataType::String => NTValue::String(String::new()),
+            DataType::Float => NTValue::Float(0f32),
+            DataType::Double => NTValue::Double(0.0),
+            DataType::BooleanArray => NTValue::BooleanArray(vec![]),
+            DataType::StringArray => NTValue::StringArray(vec![]),
+            DataType::IntegerArray => NTValue::IntegerArray(vec![]),
+            DataType::FloatArray => NTValue::FloatArray(vec![]),
+            DataType::DoubleArray => NTValue::DoubleArray(vec![]),
+        }
+    }
+}
+
 impl Into<u8> for DataType {
     fn into(self) -> u8 {
         match self {
@@ -196,7 +216,7 @@ impl Into<u8> for DataType {
 ///
 /// [`MessageBody`]: ./trait.MessageBody.html
 #[derive(Serialize, Deserialize, PartialEq)]
-pub struct NTMessage {
+pub struct NTTextMessage {
     #[serde(rename = "type")]
     _type: MessageType,
     data: Value,
@@ -212,7 +232,7 @@ macro_rules! to_data_body {
     }
 }
 
-impl NTMessage {
+impl NTTextMessage {
     /// Decodes the `Value` stored in `self` as a strongly typed struct depending on the value of `self._type`
     ///
     /// Returns the value wrapped inside the [`MessageValue`] enum.
@@ -243,12 +263,12 @@ impl NTMessage {
 #[cfg(test)]
 mod tests {
     use crate::text::publish::{PublishAck, PublishReq};
-    use crate::text::{DataType, MessageBody, MessageType, MessageValue, NTMessage};
+    use crate::text::{DataType, MessageBody, MessageType, MessageValue, NTTextMessage};
 
     #[test]
     fn test_de() {
         let msg = r#"{"type":"publish", "data": {"name": "/foo", "type": "integer"}}"#;
-        let msg = serde_json::from_str::<NTMessage>(msg).unwrap();
+        let msg = serde_json::from_str::<NTTextMessage>(msg).unwrap();
         assert_eq!(msg._type, MessageType::PublishReq);
         assert_eq!(
             msg.data(),

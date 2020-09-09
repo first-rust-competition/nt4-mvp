@@ -106,16 +106,16 @@ pub struct CborMessage {
     /// The ID associated with the given value
     ///
     /// This value is received from the textual half of the protocol, where its relation with a NetworkTables key is specified.
-    id: u32,
+    pub id: u32,
     /// An optional timestamp associated with this change
     ///
     /// This timestamp is represented in microseconds, though implementations can also choose to represent it with seconds using
     /// a double-precision float.
     ///
     /// A timestamp is only sent with a value change when requested by the client, by default this value is not sent by the server
-    timestamp: Option<u64>, // TODO: support FP timestamp
+    pub timestamp: Option<u64>, // TODO: support FP timestamp
     /// The value associated with this change
-    value: NTValue,
+    pub value: NTValue,
 }
 
 impl Serialize for CborMessage {
@@ -181,7 +181,7 @@ macro_rules! unpack_array {
 }
 
 impl CborMessage {
-    fn from_slice(slice: &[u8]) -> Vec<Result<Self, DecodeError>> {
+    pub fn from_slice(slice: &[u8]) -> Vec<Result<Self, DecodeError>> {
         let de = Deserializer::from_slice(slice.clone()).into_iter::<Value>();
 
         let mut messages = Vec::new();

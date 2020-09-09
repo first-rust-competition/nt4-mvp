@@ -14,4 +14,14 @@ mod ext;
 pub mod prelude {
     pub use crate::bin::*;
     pub use crate::text::*;
+
+    /// An enum wrapping the possible frames that can be received in NT4 communications
+    pub enum NTMessage {
+        /// A JSON-encoded message framed as WS TEXT
+        Text(crate::text::NTTextMessage),
+        /// A CBOR-encoded data stream framed as WS BIN
+        Binary(Vec<crate::bin::CborMessage>),
+        /// A WS CLOSE frame
+        Close
+    }
 }
