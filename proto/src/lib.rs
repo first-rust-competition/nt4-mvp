@@ -20,7 +20,7 @@ pub mod prelude {
         /// A JSON-encoded message framed as WS TEXT
         Text(crate::text::NTTextMessage),
         /// A CBOR-encoded data stream framed as WS BIN
-        Binary(Vec<crate::bin::CborMessage>),
+        Binary(Vec<crate::bin::NTBinaryMessage>),
         /// A WS CLOSE frame
         Close
     }

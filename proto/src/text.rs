@@ -1,4 +1,4 @@
-use crate::text::directory::{Announce, Directory, List, Listen, Unannounce, Unlisten};
+use crate::text::directory::{Announce, Unannounce};
 use crate::text::publish::{PublishAck, PublishRel, PublishReq};
 use crate::text::subscription::{GetValues, Subscribe, Unsubscribe};
 use serde::{Deserialize, Serialize};
@@ -55,31 +55,6 @@ pub enum MessageType {
     /// The client **must** stop publishing data value updates via binary CBOR messages prior to sending this message.
     #[serde(rename = "pubrel")]
     PublishRel,
-    /// Get Directory Message
-    /// Direction: Client to Server
-    /// Response: Directory Response
-    ///
-    /// Sent from a client to the server to indicate the client wants to get information about what keys are currently published.
-    /// The server shall send a “directory” message in response.
-    List,
-    /// Directory Response Message
-    /// Direction: Server to Client
-    ///
-    /// Sent from the server to a client in response to the client’s “list” message.
-    Directory,
-    /// Start Announcements Message
-    /// Direction: Client to Server
-    /// Response: Key Announcement, Key Removed
-    ///
-    /// Sent from a client to the server to indicate the client wants to get information about what keys are currently published and listen for future published keys.
-    /// The server shall send “announce” and “unannounce” messages as keys are added or removed (respectively) with the specified prefix.
-    /// Any keys currently present will immediately result in “announce” messages being sent.
-    Listen,
-    /// Stop Announcements Message
-    /// Direction: Client to Server
-    ///
-    /// Sent from a client to the server to indicate the client wants to stop getting “announce” and “unannounce” messages for a particular prefix.
-    Unlisten,
     /// Key Announcement Message
     /// Direction: Server to Client
     ///
@@ -125,10 +100,6 @@ pub enum MessageValue {
     PublishReq(PublishReq),
     PublishAck(PublishAck),
     PublishRel(PublishRel),
-    List(List),
-    Directory(Directory),
-    Listen(Listen),
-    Unlisten(Unlisten),
     Announce(Announce),
     Unannounce(Unannounce),
     GetValues(GetValues),
@@ -247,10 +218,6 @@ impl NTTextMessage {
             PublishReq,
             PublishAck,
             PublishRel,
-            List,
-            Directory,
-            Listen,
-            Unlisten,
             Announce,
             Unannounce,
             GetValues,

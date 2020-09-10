@@ -7,7 +7,7 @@ use crate::ext::*;
 use crate::text::DataType;
 use serde::ser::SerializeSeq;
 use serde::Serialize;
-use serde_cbor::{Deserializer, Value};
+use rmpv::Value;
 use thiserror::Error;
 
 macro_rules! impl_conversion {
@@ -76,67 +76,56 @@ impl NTValue {
 // An error encountered when attempting to deserialize NT4 messages from CBOR
 #[derive(Debug, Error)]
 pub enum DecodeError {
-    #[error("Error decoding ID from CBOR message. Expected an integer. Found: `{0:?}`")]
+    #[error("Error decoding ID from binary message. Expected an integer. Found: `{0:?}`")]
     InvalidId(Value),
-    #[error("Error decoding timestamp from CBOR message. Expected an integer. Found: `{0:?}`")]
+    #[error("Error decoding timestamp from binary message. Expected an integer. Found: `{0:?}`")]
     InvalidTimestamp(Value),
-    #[error("Error decoding NT type from CBOR message. Expected an integer. Found: `{0:?}`")]
-    InvalidTypeFieldCBOR(Value),
-    #[error("Error decoding NT type from CBOR message. Invalid NT type `{0}`.")]
+    #[error("Error decoding NT type from binary message. Expected an integer. Found: `{0:?}`")]
+    InvalidTypeFieldType(Value),
+    #[error("Error decoding NT type from binary message. Invalid NT type `{0}`.")]
     InvalidTypeFieldValue(u8),
-    #[error("Error decoding NT value from CBOR message. Expected `{0:?}`, found an array.")]
+    #[error("Error decoding NT value from binary message. Expected `{0:?}`, found an array.")]
     InvalidArrayType(DataType),
-    #[error("Error decoding NT value from CBOR message. Arrays must be of a uniform type. Expected `{0:?}`, found element `{1:?}`.")]
+    #[error("Error decoding NT value from binary message. Arrays must be of a uniform type. Expected `{0:?}`, found element `{1:?}`.")]
     NonUniformArray(DataType, Value),
-    #[error("Error decoding NT value from CBOR message. Found unexpected CBOR value `{0:?}`")]
-    InvalidCBORValue(Value),
-    #[error("Error decoding NT value from CBOR message. Data tagged as type `{0:?}` but decoded as type `{1:?}`")]
+    #[error("Error decoding NT value from binary message. Found unexpected MsgPack value `{0:?}`")]
+    InvalidMsgPackValue(Value),
+    #[error("Error decoding NT value from binary message. Data tagged as type `{0:?}` but decoded as type `{1:?}`")]
     TypeMismatch(DataType, DataType),
-    #[error("Error decoding CBOR message. Codec Error: {0}")]
-    CBOR(#[from] serde_cbor::Error),
-    #[error("Error decoding CBOR message. Expected top-level array, found `{0:?}`")]
+    #[error("Error decoding binary message. Codec Error: {0}")]
+    MsgPack(#[from] rmpv::decode::Error),
+    #[error("Error decoding binary message. Expected top-level array, found `{0:?}`")]
     InvalidTopLevelValue(Value),
-    #[error("Error decoding CBOR message. Invalid length of top-level array: `{0}`.")]
+    #[error("Error decoding binary message. Invalid length of top-level array: `{0}`.")]
     InvalidTopLevelArrayLength(usize),
 }
 
-/// A message sent or recieved over CBOR
+/// A binary message received in NT4 communications
 #[derive(PartialEq, Debug, Clone)]
-pub struct CborMessage {
+pub struct NTBinaryMessage {
     /// The ID associated with the given value
     ///
     /// This value is received from the textual half of the protocol, where its relation with a NetworkTables key is specified.
     pub id: u32,
-    /// An optional timestamp associated with this change
+    /// A timestamp associated with this change
     ///
-    /// This timestamp is represented in microseconds, though implementations can also choose to represent it with seconds using
-    /// a double-precision float.
-    ///
-    /// A timestamp is only sent with a value change when requested by the client, by default this value is not sent by the server
-    pub timestamp: Option<u64>, // TODO: support FP timestamp
+    /// This timestamp is represented in microseconds
+    pub timestamp: u64,
     /// The value associated with this change
     pub value: NTValue,
 }
 
-impl Serialize for CborMessage {
+impl Serialize for NTBinaryMessage {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        if let Some(ts) = self.timestamp {
-            let mut seq = serializer.serialize_seq(Some(4))?;
-            seq.serialize_element(&self.id)?;
-            seq.serialize_element(&ts)?;
-            seq.serialize_element::<u8>(&self.value.data_type().into())?;
-            seq.serialize_element(&self.value)?;
-            seq.end()
-        } else {
-            let mut seq = serializer.serialize_seq(Some(3))?;
-            seq.serialize_element(&self.id)?;
-            seq.serialize_element::<u8>(&self.value.data_type().into())?;
-            seq.serialize_element(&self.value)?;
-            seq.end()
-        }
+       let mut seq = serializer.serialize_seq(Some(4))?;
+       seq.serialize_element(&self.id)?;
+       seq.serialize_element(&self.timestamp)?;
+       seq.serialize_element::<u8>(&self.value.data_type().into())?;
+       seq.serialize_element(&self.value)?;
+       seq.end()
     }
 }
 
@@ -145,7 +134,7 @@ macro_rules! unpack_value {
         match $value.$func() {
             Some(v) => NTValue::$nt_name(v),
             None => {
-                $messages.push(Err(DecodeError::InvalidCBORValue($value.clone())));
+                $messages.push(Err(DecodeError::InvalidMsgPackValue($value.clone())));
                 continue;
             }
         }
@@ -154,7 +143,7 @@ macro_rules! unpack_value {
         match $value.$func() {
             Some(v) => v,
             None => {
-                $messages.push(Err(DecodeError::InvalidCBORValue($value.clone())));
+                $messages.push(Err(DecodeError::InvalidMsgPackValue($value.clone())));
                 continue;
             }
         }
@@ -180,115 +169,100 @@ macro_rules! unpack_array {
     }}
 }
 
-impl CborMessage {
+impl NTBinaryMessage {
     pub fn from_slice(slice: &[u8]) -> Vec<Result<Self, DecodeError>> {
-        let de = Deserializer::from_slice(slice.clone()).into_iter::<Value>();
+        let de = MsgpackStreamIterator::new(slice);
 
         let mut messages = Vec::new();
+
         'outer: for value in de {
             match value {
                 Ok(Value::Array(values)) => {
                     let id = match &values[0] {
-                        Value::Integer(id) => *id as u32,
+                        Value::Integer(id) => match id.as_u64() {
+                            Some(id) => id as u32,
+                            None => {
+                                messages.push(Err(DecodeError::InvalidId(values[0].clone())));
+                                continue;
+                            }
+                        }
                         val => {
                             messages.push(Err(DecodeError::InvalidId(val.clone())));
                             continue;
                         }
                     };
 
-                    let (ty_idx, timestamp) = match values.len() {
-                        3 => (1, None),
-                        4 => {
-                            let timestamp = match &values[1] {
-                                Value::Integer(ts) => *ts as u64,
-                                value => {
-                                    messages
-                                        .push(Err(DecodeError::InvalidTimestamp(value.clone())));
-                                    continue;
-                                }
-                            };
-                            (2, Some(timestamp))
+                    let timestamp = match &values[1] {
+                        Value::Integer(ts) => match ts.as_u64() {
+                            Some(ts) => ts,
+                            None => {
+                                messages.push(Err(DecodeError::InvalidTimestamp(values[1].clone())));
+                                continue;
+                            }
                         }
-                        len => {
-                            messages.push(Err(DecodeError::InvalidTopLevelArrayLength(len)));
+                        value => {
+                            messages
+                                .push(Err(DecodeError::InvalidTimestamp(value.clone())));
                             continue;
                         }
                     };
 
-                    let ty = match &values[ty_idx] {
-                        Value::Integer(i) => match i {
-                            0 => DataType::Boolean,
-                            1 => DataType::Double,
-                            2 => DataType::Integer,
-                            3 => DataType::Float,
-                            4 => DataType::String,
-                            5 => DataType::Raw,
-                            6 => DataType::RPC,
-                            16 => DataType::BooleanArray,
-                            17 => DataType::DoubleArray,
-                            18 => DataType::IntegerArray,
-                            19 => DataType::FloatArray,
-                            20 => DataType::StringArray,
-                            ty => {
-                                messages.push(Err(DecodeError::InvalidTypeFieldValue(*ty as u8)));
+                    let ty = match &values[2] {
+                        Value::Integer(i) => match i.as_u64() {
+                            Some(i) => match i {
+                                0 => DataType::Boolean,
+                                1 => DataType::Double,
+                                2 => DataType::Integer,
+                                3 => DataType::Float,
+                                4 => DataType::String,
+                                5 => DataType::Raw,
+                                6 => DataType::RPC,
+                                16 => DataType::BooleanArray,
+                                17 => DataType::DoubleArray,
+                                18 => DataType::IntegerArray,
+                                19 => DataType::FloatArray,
+                                20 => DataType::StringArray,
+                                ty => {
+                                    messages.push(Err(DecodeError::InvalidTypeFieldValue(ty as u8)));
+                                    continue;
+                                }
+                            }
+                            None => {
+                                messages.push(Err(DecodeError::InvalidTypeFieldType(values[2].clone())));
                                 continue;
                             }
                         },
                         val => {
-                            messages.push(Err(DecodeError::InvalidTypeFieldCBOR(val.clone())));
+                            messages.push(Err(DecodeError::InvalidTypeFieldType(val.clone())));
                             continue;
                         }
                     };
 
-                    let cbor_value = &values[ty_idx + 1];
+                    let raw_value = &values[3];
                     let value = match ty {
                         DataType::Integer => {
-                            unpack_value!(messages => cbor_value, as_integer, Integer)
+                            unpack_value!(messages => raw_value, as_integer, Integer)
                         }
                         DataType::Boolean => {
-                            unpack_value!(messages => cbor_value, as_bool, Boolean)
+                            unpack_value!(messages => raw_value, as_bool, Boolean)
                         }
-                        DataType::Raw => unpack_value!(messages => cbor_value, as_bytes, Raw),
-                        DataType::RPC => unpack_value!(messages => cbor_value, as_bytes, RPC),
-                        DataType::String => unpack_value!(messages => cbor_value, as_text, String),
-                        // Special case because CBOR doesn't distinguish between single/double precision floats
-                        DataType::Float => match cbor_value.as_float() {
-                            Some(f) => NTValue::Float(f as f32),
-                            None => {
-                                messages
-                                    .push(Err(DecodeError::InvalidCBORValue(cbor_value.clone())));
-                                continue;
-                            }
-                        },
-                        DataType::Double => unpack_value!(messages => cbor_value, as_float, Double),
+                        DataType::Raw => unpack_value!(messages => raw_value, as_bytes, Raw),
+                        DataType::RPC => unpack_value!(messages => raw_value, as_bytes, RPC),
+                        DataType::String => unpack_value!(messages => raw_value, as_text, String),
+                        DataType::Float => unpack_value!(messages => raw_value, as_f32, Float),
+                        DataType::Double => unpack_value!(messages => raw_value, as_f64, Double),
                         DataType::BooleanArray => {
-                            unpack_array!((messages, ty, 'outer) => cbor_value, as_bool, BooleanArray)
+                            unpack_array!((messages, ty, 'outer) => raw_value, as_bool, BooleanArray)
                         }
                         DataType::StringArray => {
-                            unpack_array!((messages, ty, 'outer) => cbor_value, as_text, StringArray)
+                            unpack_array!((messages, ty, 'outer) => raw_value, as_text, StringArray)
                         }
                         DataType::IntegerArray => {
-                            unpack_array!((messages, ty, 'outer) => cbor_value, as_integer, IntegerArray)
+                            unpack_array!((messages, ty, 'outer) => raw_value, as_integer, IntegerArray)
                         }
-                        // Special case because CBOR doesn't distinguish between single/double precision floats
-                        DataType::FloatArray => {
-                            let v = unpack_value!(messages => cbor_value, as_array);
-                            let mut arr = Vec::with_capacity(v.len());
-
-                            for value in v {
-                                if let Value::Float(v) = value {
-                                    arr.push(v as f32);
-                                } else {
-                                    messages
-                                        .push(Err(DecodeError::NonUniformArray(ty, value.clone())));
-                                    continue 'outer;
-                                }
-                            }
-
-                            NTValue::FloatArray(arr)
-                        }
+                        DataType::FloatArray => unpack_array!((messages, ty, 'outer) => raw_value, as_f32, FloatArray),
                         DataType::DoubleArray => {
-                            unpack_array!((messages, ty, 'outer) => cbor_value, as_float, DoubleArray)
+                            unpack_array!((messages, ty, 'outer) => raw_value, as_f64, DoubleArray)
                         }
                     };
 
@@ -299,7 +273,7 @@ impl CborMessage {
                     }));
                 }
                 Ok(value) => messages.push(Err(DecodeError::InvalidTopLevelValue(value))),
-                Err(e) => messages.push(Err(DecodeError::CBOR(e))),
+                Err(e) => messages.push(Err(e)),
             }
         }
 
@@ -309,30 +283,25 @@ impl CborMessage {
 
 #[cfg(test)]
 mod tests {
-    use super::CborMessage;
+    use super::NTBinaryMessage;
     use crate::bin::NTValue;
 
     #[test]
     fn test_single_message_stream() {
         let data = vec![
-            0x84, // array(4)
-            0x18, 0x2A, // unsigned(42)
-            0x1A, 0x49, 0x96, 0x02, 0xD2, // unsigned(1234567890)
-            0x10, // type: boolean[]
-            0x83, // array(3)
-            0xF5, // true
-            0xF4, // false
-            0xF5, // true
+            0x94, 0x2a, 0xce, 0x49,
+            0x96, 0x02, 0xd2, 0x10,
+            0x93, 0xc3, 0xc2, 0xc3
         ];
 
-        let messages = CborMessage::from_slice(&data[..]);
+        let messages = NTBinaryMessage::from_slice(&data[..]);
 
         assert_eq!(messages.len(), 1);
         assert_eq!(
             messages.into_iter().next().unwrap().ok(),
-            Some(CborMessage {
+            Some(NTBinaryMessage {
                 id: 42,
-                timestamp: Some(1234567890),
+                timestamp: 1234567890,
                 value: NTValue::BooleanArray(vec![true, false, true])
             })
         )
@@ -342,33 +311,20 @@ mod tests {
     fn test_multi_message_stream() {
         let data = vec![
             // ITEM 1
-            0x84, // array(4)
-            0x18, 0x2A, // unsigned(42)
-            0x1A, 0x49, 0x96, 0x02, 0xD2, // unsigned(1234567890)
-            0x10, // Type: bool[]
-            0x83, // array(3)
-            0xF5, // true
-            0xF4, // false
-            0xF5, // true
+            0x94, 0x2a, 0xce, 0x49,
+            0x96, 0x02, 0xd2, 0x10,
+            0x93, 0xc3, 0xc2, 0xc3,
             // ITEM 2
-            0x83, // array(3)
-            0x18, 0x45, // unsigned(69)
-            0x04, // type: string
-            0x65, // text
-            0x48, 0x65, 0x6C, 0x6C, 0x6F, // Hello
+            0x94, 0x45, 0xcd, 0x04,
+            0xd2, 0x04, 0xa5, 0x48,
+            0x65, 0x6c, 0x6c, 0x6f,
             // ITEM 3
-            0x84, // array(4)
-            0x19, 0x01, 0xA4, // unsigned(420)
-            0x19, 0x16, 0x2E, // unsigned(5678)
-            0x12, // type: int[]
-            0x84, // array(4)
-            0x01, // unsigned(1)
-            0x02, // unsigned(2)
-            0x03, // unsigned(3)
-            0x04, // unsigned(4)
+            0x94, 0xcd, 0x01, 0xa4,
+            0xcd, 0x16, 0x2e, 0x12,
+            0x94, 0x01, 0x02, 0x03, 0x04
         ];
 
-        let messages = CborMessage::from_slice(&data[..]);
+        let messages = NTBinaryMessage::from_slice(&data[..]);
 
         assert_eq!(messages.len(), 3);
 
@@ -376,27 +332,27 @@ mod tests {
 
         assert_eq!(
             messages.next().unwrap().ok(),
-            Some(CborMessage {
+            Some(NTBinaryMessage {
                 id: 42,
-                timestamp: Some(1234567890),
+                timestamp: 1234567890,
                 value: NTValue::BooleanArray(vec![true, false, true])
             })
         );
 
         assert_eq!(
             messages.next().unwrap().ok(),
-            Some(CborMessage {
+            Some(NTBinaryMessage {
                 id: 69,
-                timestamp: None,
+                timestamp: 1234,
                 value: NTValue::String("Hello".to_string())
             })
         );
 
         assert_eq!(
             messages.next().unwrap().ok(),
-            Some(CborMessage {
+            Some(NTBinaryMessage {
                 id: 420,
-                timestamp: Some(5678),
+                timestamp: 5678,
                 value: NTValue::IntegerArray(vec![1, 2, 3, 4])
             })
         );
@@ -405,20 +361,23 @@ mod tests {
     #[test]
     fn test_empty_array() {
         let data = vec![
-            0x83, // array(3)
-            0x01, // unsigned(1)
-            0x14, // type: string[]
-            0x80, // tagged(string[])
+            0x94,
+            0x01,
+            0xcd,
+            0x04,
+            0xd2,
+            0x14,
+            0x90
         ];
 
-        let messages = CborMessage::from_slice(&data[..]);
+        let messages = NTBinaryMessage::from_slice(&data[..]);
 
         assert_eq!(messages.len(), 1);
         assert_eq!(
             messages.into_iter().next().unwrap().ok(),
-            Some(CborMessage {
+            Some(NTBinaryMessage {
                 id: 1,
-                timestamp: None,
+                timestamp: 1234,
                 value: NTValue::StringArray(vec![])
             })
         )
@@ -426,42 +385,42 @@ mod tests {
 
     #[test]
     fn test_serialize() {
-        let msg = CborMessage {
+        let msg = NTBinaryMessage {
             id: 1,
-            timestamp: None,
+            timestamp: 4242,
             value: NTValue::DoubleArray(vec![]),
         };
 
-        let v = serde_cbor::to_vec(&msg).unwrap();
+        let v = rmp_serde::to_vec(&msg).unwrap();
 
-        assert_eq!(&v[..], &[0x83, 0x01, 0x11, 0x80]);
+        assert_eq!(&v[..], &[0x94, 0x01, 0xcd, 0x10, 0x92, 0x11, 0x90]);
 
-        let msg = CborMessage {
+        let msg = NTBinaryMessage {
             id: 42,
-            timestamp: Some(1234),
+            timestamp: 1234,
             value: NTValue::Double(1.5),
         };
 
-        let v = serde_cbor::to_vec(&msg).unwrap();
+        let v = rmp_serde::to_vec(&msg).unwrap();
 
         assert_eq!(
             &v[..],
-            &[0x84, 0x18, 0x2A, 0x19, 0x04, 0xD2, 0x01, 0xF9, 0x3E, 0x00]
+            &[0x94, 0x2a, 0xcd, 0x04, 0xd2, 0x01, 0xcb, 0x3f, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
         );
     }
 
     #[test]
     fn test_serialize_raw() {
-        let msg = CborMessage {
+        let msg = NTBinaryMessage {
             id: 5,
-            timestamp: None,
+            timestamp: 4242,
             value: NTValue::Raw(vec![0x42, 0x69, 0x2, 0xa]),
         };
 
-        let v = serde_cbor::to_vec(&msg).unwrap();
+        let v = rmp_serde::to_vec(&msg).unwrap();
         assert_eq!(
             &v[..],
-            &[0x83, 0x05, 0x05, 0x44, 0x42, 0x69, 0x02, 0x0A],
+            &[0x94, 0x05, 0xcd, 0x10, 0x92, 0x05, 0xc4, 0x04, 0x42, 0x69, 0x2, 0xa],
             "Vector {:x?}",
             v
         );
@@ -469,28 +428,27 @@ mod tests {
 
     #[test]
     fn test_identity() {
-        let msg = CborMessage {
+        let msg = NTBinaryMessage {
             id: 5,
-            timestamp: Some(12345),
+            timestamp: 12345,
             value: NTValue::Double(4.2),
         };
 
-        let v = serde_cbor::to_vec(&msg).unwrap();
-        let mut msg2 = CborMessage::from_slice(&v[..]).into_iter();
+        let v = rmp_serde::to_vec(&msg).unwrap();
+        let mut msg2 = NTBinaryMessage::from_slice(&v[..]).into_iter();
 
-        assert_eq!(Some(msg), msg2.next().unwrap().ok());
+        let res = msg2.next().unwrap();
+        println!("{:?}", res);
+        assert_eq!(Some(msg), res.ok());
     }
 
     #[test]
     fn test_invalid_message() {
         let v = vec![
-            0x83, // array(3)
-            0x01, // unsigned(1)
-            0x63, 0x66, 0x6F, 0x6F, // text(foo)
-            0x05, // unsigned(5)
+            0x93, 0x01, 0xa3, 0x66, 0x6f, 0x6f, 0x05
         ];
 
-        let messages = CborMessage::from_slice(&v[..]);
+        let messages = NTBinaryMessage::from_slice(&v[..]);
 
         assert_eq!(messages.len(), 1);
 
@@ -499,31 +457,26 @@ mod tests {
 
     #[test]
     fn test_mixed_messages() {
-        //FB 3F BF 97 24 74 53 8E F3
         let v = vec![
             // ITEM 1
-            0x83, // array(3)
-            0x01, // unsigned(1)
-            0x02, // unsigned(2)
-            0x05, // unsigned(5)
+            0x94, 0x01, 0xcd, 0x10, 0x92, 0x02, 0x05,
             // ITEM 2
-            0x83, // array(3)
-            0x01, // unsigned(1)
-            0x02, // unsigned(2)
-            // Data tagged as integer, but with FP value
-            0xFB, 0x3F, 0xBF, 0x97, 0x24, 0x74, 0x53, 0x8E, 0xF3, // float(0.1234)
+            0x94, 0x01, 0xcd, 0x10,
+            0x92, 0x02,
+            // Data tagged as int but with FP value
+            0xcb, 0x3f, 0xbf, 0x97, 0x24, 0x74, 0x53, 0x8e, 0xf3
         ];
 
-        let messages = CborMessage::from_slice(&v[..]);
+        let messages = NTBinaryMessage::from_slice(&v[..]);
         assert_eq!(messages.len(), 2);
 
         let mut messages = messages.into_iter();
 
         assert_eq!(
             messages.next().unwrap().ok(),
-            Some(CborMessage {
+            Some(NTBinaryMessage {
                 id: 1,
-                timestamp: None,
+                timestamp: 4242,
                 value: NTValue::Integer(5),
             })
         );
@@ -535,46 +488,50 @@ mod tests {
     fn test_value_serializer() {
         // Booleans
         assert_eq!(
-            &serde_cbor::to_vec(&NTValue::Boolean(false)).unwrap()[..],
-            &[0xF4]
+            &rmp_serde::to_vec(&NTValue::Boolean(false)).unwrap()[..],
+            &[0xc2]
         );
         assert_eq!(
-            &serde_cbor::to_vec(&NTValue::Boolean(true)).unwrap()[..],
-            &[0xF5]
+            &rmp_serde::to_vec(&NTValue::Boolean(true)).unwrap()[..],
+            &[0xc3]
         );
 
         // Doubles
         assert_eq!(
-            &serde_cbor::to_vec(&NTValue::Double(0.25)).unwrap()[..],
-            &[0xF9, 0x34, 0x00]
+            &rmp_serde::to_vec(&NTValue::Double(0.25)).unwrap()[..],
+            &[0xcb, 0x3f, 0xd0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        );
+        assert_eq!(
+            &rmp_serde::to_vec(&NTValue::Float(0.25f32)).unwrap()[..],
+            &[0xca, 0x3e, 0x80, 0x00, 0x00]
         );
 
         // Integers
         assert_eq!(
-            &serde_cbor::to_vec(&NTValue::Integer(42)).unwrap()[..],
-            &[0x18, 0x2A]
+            &rmp_serde::to_vec(&NTValue::Integer(42)).unwrap()[..],
+            &[0x2a]
         );
         assert_eq!(
-            &serde_cbor::to_vec(&NTValue::Integer(-42)).unwrap()[..],
-            &[0x38, 0x29]
+            &rmp_serde::to_vec(&NTValue::Integer(-42)).unwrap()[..],
+            &[0xd0, 0xd6]
         );
 
         // Byte strings (Raw/RPC)
         assert_eq!(
-            &serde_cbor::to_vec(&NTValue::Raw(vec![0xa, 0x42, 0x13, 0x20])).unwrap()[..],
-            &[0x44, 0x0A, 0x42, 0x13, 0x20]
+            &rmp_serde::to_vec(&NTValue::Raw(vec![0xa, 0x42, 0x13, 0x20])).unwrap()[..],
+            &[0xc4, 0x04, 0xa, 0x42, 0x13, 0x20]
         );
 
         // Text strings
         assert_eq!(
-            &serde_cbor::to_vec(&NTValue::String("abcd".to_string())).unwrap()[..],
-            &[0x64, 0x61, 0x62, 0x63, 0x64]
+            &rmp_serde::to_vec(&NTValue::String("abcd".to_string())).unwrap()[..],
+            &[0xa4, 0x61, 0x62, 0x63, 0x64]
         );
 
         // Arrays
         assert_eq!(
-            &serde_cbor::to_vec(&NTValue::IntegerArray(vec![1, -2, 3, -4])).unwrap()[..],
-            &[0x84, 0x01, 0x21, 0x03, 0x23]
+            &rmp_serde::to_vec(&NTValue::IntegerArray(vec![1, -2, 3, -4])).unwrap()[..],
+            &[0x94, 0x01, 0xfe, 0x03, 0xfc]
         );
     }
 }
