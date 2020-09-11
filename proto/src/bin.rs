@@ -54,7 +54,7 @@ fn raw_serializer<S: serde::Serializer>(v: &Vec<u8>, s: S) -> Result<S::Ok, S::E
 }
 
 impl NTValue {
-    fn data_type(&self) -> DataType {
+    pub fn data_type(&self) -> DataType {
         impl_conversion!(
             self,
             Boolean,

@@ -24,33 +24,6 @@ pub struct PublishReq {
     /// The type of the data that the client wishes to start publishing
     #[serde(rename = "type")]
     pub _type: DataType,
-    /// Additional options
-    pub options: Option<PublishRequestOptions>,
-}
-
-#[derive(Serialize, Deserialize, Default, Debug, PartialEq)]
-#[serde(default)]
-pub struct PublishRequestOptions {
-    /// Whether the client wishes for this value to be persisted.
-    ///
-    /// When this is set to true, the server will periodically flush the value to disk, and restore it when it restarts.
-    /// Otherwise the value will be forgotten when the server restarts.
-    persistent: bool,
-}
-
-/// Publish Acknowledge Message
-///
-/// Sent by the server in response to a [`PublishReq`] message. This message contains the ID that must be used in CBOR messages
-/// to publish messages to the given key
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct PublishAck {
-    /// The NetworkTables key
-    pub name: String,
-    /// The type of the data to be published at this key
-    #[serde(rename = "type")]
-    pub _type: DataType,
-    /// The ID associated with this key. This ID is used in CBOR messages to push value updates.
-    pub id: u32,
 }
 
 /// Publish Release Message
@@ -59,10 +32,22 @@ pub struct PublishAck {
 /// The client can also request that the associated key can be deleted.
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct PublishRel {
-    /// The ID of the NetworkTables entry
-    pub id: u32,
-    /// Set when the client wishes for the server to delete this entry when this message is received.
-    pub delete: bool,
+    pub name: String,
 }
 
-impl_message!(PublishReq, PublishAck, PublishRel);
+/// Set Flags Message
+///
+/// Sent by a client to indicate that it wishes to update the flags associated with the given entry
+///
+/// The server will respond with an announce message containing the updated entry
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct SetFlags {
+    /// The name of the entry to update
+    pub name: String,
+    /// The flags the client wishes to add
+    pub add: Vec<String>,
+    /// The flags the client wishes to remove
+    pub remove: Vec<String>
+}
+
+impl_message!(PublishReq, SetFlags, PublishRel);

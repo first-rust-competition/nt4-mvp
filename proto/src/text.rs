@@ -1,6 +1,6 @@
-use crate::text::directory::{Announce, Unannounce};
-use crate::text::publish::{PublishAck, PublishRel, PublishReq};
-use crate::text::subscription::{GetValues, Subscribe, Unsubscribe};
+use crate::text::directory::*;
+use crate::text::publish::*;
+use crate::text::subscription::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use crate::bin::NTValue;
@@ -41,12 +41,6 @@ pub enum MessageType {
     /// Once the client receives the “puback” message it can start publishing data value updates via binary CBOR messages.
     #[serde(rename = "publish")]
     PublishReq,
-    /// Publish Acknowledge Message
-    /// Direction: Server to Client
-    ///
-    /// Sent from the server to a client in response to the client’s “publish” message.
-    #[serde(rename = "puback")]
-    PublishAck,
     /// Publish Release Message
     /// Direction: Client to Server
     ///
@@ -55,6 +49,12 @@ pub enum MessageType {
     /// The client **must** stop publishing data value updates via binary CBOR messages prior to sending this message.
     #[serde(rename = "pubrel")]
     PublishRel,
+    /// Set Flags Message
+    /// Direction: Client to Server
+    ///
+    /// Sent from a client to the server to set or clear flags for a given topic.
+    /// The server will respond with an updated “announce” message.
+    SetFlags,
     /// Key Announcement Message
     /// Direction: Server to Client
     ///
@@ -98,8 +98,8 @@ pub enum MessageType {
 #[derive(Debug, PartialEq)]
 pub enum MessageValue {
     PublishReq(PublishReq),
-    PublishAck(PublishAck),
     PublishRel(PublishRel),
+    SetFlags(SetFlags),
     Announce(Announce),
     Unannounce(Unannounce),
     GetValues(GetValues),
@@ -216,8 +216,8 @@ impl NTTextMessage {
         to_data_body!(
             self,
             PublishReq,
-            PublishAck,
             PublishRel,
+            SetFlags,
             Announce,
             Unannounce,
             GetValues,
@@ -229,7 +229,7 @@ impl NTTextMessage {
 
 #[cfg(test)]
 mod tests {
-    use crate::text::publish::{PublishAck, PublishReq};
+    use crate::text::publish::{PublishReq, SetFlags};
     use crate::text::{DataType, MessageBody, MessageType, MessageValue, NTTextMessage};
 
     #[test]
@@ -242,22 +242,21 @@ mod tests {
             MessageValue::PublishReq(PublishReq {
                 name: "/foo".to_string(),
                 _type: DataType::Integer,
-                options: None
             })
         );
     }
 
     #[test]
     fn test_ser() {
-        let msg = PublishAck {
+        let msg = SetFlags {
             name: "/foo".to_string(),
-            _type: DataType::Integer,
-            id: 42,
+            add: vec!["persistent".to_string()],
+            remove: vec!["bolb".to_string()]
         };
 
         assert_eq!(
             serde_json::to_string(&msg.into_message()).unwrap(),
-            r#"{"type":"puback","data":{"id":42,"name":"/foo","type":"integer"}}"#
+            r#"{"type":"setflags","data":{"add":["persistent"],"name":"/foo","remove":["bolb"]}}"#
         )
     }
 }

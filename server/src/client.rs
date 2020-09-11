@@ -7,22 +7,26 @@ use proto::prelude::{NTMessage, MessageValue, NTTextMessage};
 use futures::prelude::*;
 use futures::stream::{SplitStream, SplitSink};
 use log::*;
+use crate::entry::Topic;
+use proto::prelude::directory::{Announce, Unannounce};
+use proto::prelude::subscription::{Subscribe, Unsubscribe};
 
+#[derive(Clone, Debug)]
 pub struct Subscription {
-    ids: Vec<u32>,
-    immediate: bool,
-    periodic: f64,
-    logging: bool,
-    timestamped: bool,
+    pub ids: Vec<u32>,
+    pub immediate: bool,
+    pub periodic: f64,
+    pub logging: bool,
 }
 
 pub struct ConnectedClient {
     net_tx: SplitSink<NTSocket, NTMessage>,
-    subs: HashMap<u32, Subscription>,
+    pub subs: HashMap<u32, Subscription>,
+    pub_ids: HashMap<String, u32>,
+    next_pub_id: u32,
 }
 
 async fn client_loop(mut rx: SplitStream<NTSocket>, tx: Sender<ServerMessage>, cid: u32) -> anyhow::Result<()> {
-
     while let Some(packet) = rx.next().await {
         match packet {
             Ok(msg) => match msg {
@@ -37,6 +41,8 @@ async fn client_loop(mut rx: SplitStream<NTSocket>, tx: Sender<ServerMessage>, c
         }
     }
 
+    log::info!("Client loop for CID {} terminated", cid);
+
     Ok(())
 }
 
@@ -49,28 +55,58 @@ impl ConnectedClient {
         ConnectedClient {
             net_tx,
             subs: HashMap::new(),
-        }
-    }
-
-    pub fn handle_control_message(&mut self, msg: NTTextMessage) {
-        match msg.data() {
-            MessageValue::PublishReq(_) => {}
-            MessageValue::PublishAck(_) => {}
-            MessageValue::PublishRel(_) => {}
-            MessageValue::List(_) => {}
-            MessageValue::Directory(_) => {}
-            MessageValue::Listen(_) => {}
-            MessageValue::Unlisten(_) => {}
-            MessageValue::Announce(_) => {}
-            MessageValue::Unannounce(_) => {}
-            MessageValue::GetValues(_) => {}
-            MessageValue::Subscribe(_) => {}
-            MessageValue::Unsubscribe(_) => {}
+            pub_ids: HashMap::new(),
+            next_pub_id: 1,
         }
     }
 
     pub fn subscribed_to(&self, id: u32) -> bool {
         self.subs.values().any(|sub| sub.ids.iter().any(|it| *it == id))
+    }
+
+    pub fn announce(&mut self, entry: &Topic) -> Announce {
+        let id = self.next_pub_id;
+        self.next_pub_id += 1;
+        self.pub_ids.insert(entry.name.clone(), id);
+        Announce {
+            name: entry.name.clone(),
+            id,
+            _type: entry.entry_type(),
+            flags: entry.flags.clone()
+        }
+    }
+
+    pub fn unannounce(&mut self, entry: &Topic) -> Unannounce {
+        let id = self.pub_ids.remove(&entry.name).unwrap();
+        Unannounce {
+            name: entry.name.clone(),
+            id
+        }
+    }
+
+    pub fn id_to_name(&self, id: u32) -> Option<&String> {
+        self.pub_ids.iter().find(|(_, pub_id)| **pub_id == id).map(|(name, _)| name)
+    }
+
+    pub fn subscribe(&mut self, packet: Subscribe) {
+        let mut sub = Subscription {
+            ids: packet.ids,
+            immediate: false,
+            periodic: 0.0,
+            logging: false
+        };
+
+        if let Some(opts) = packet.options {
+            sub.immediate = opts.immediate;
+            sub.logging = opts.logging;
+            sub.periodic = opts.periodic;
+        }
+
+        self.subs.insert(packet.subuid, sub);
+    }
+
+    pub fn unsubscribe(&mut self, packet: Unsubscribe) {
+        self.subs.remove(&packet.subuid);
     }
 
     pub async fn send_message(&mut self, msg: NTMessage) {

@@ -18,10 +18,20 @@ pub mod prelude {
     /// An enum wrapping the possible frames that can be received in NT4 communications
     pub enum NTMessage {
         /// A JSON-encoded message framed as WS TEXT
-        Text(crate::text::NTTextMessage),
-        /// A CBOR-encoded data stream framed as WS BIN
-        Binary(Vec<crate::bin::NTBinaryMessage>),
+        Text(Vec<NTTextMessage>),
+        /// A Msgpack-encoded data stream framed as WS BIN
+        Binary(Vec<NTBinaryMessage>),
         /// A WS CLOSE frame
         Close
+    }
+
+    impl NTMessage {
+        pub fn single_text(msg: NTTextMessage) -> NTMessage {
+            NTMessage::Text(vec![msg])
+        }
+
+        pub fn single_bin(msg: NTBinaryMessage) -> NTMessage {
+            NTMessage::Binary(vec![msg])
+        }
     }
 }

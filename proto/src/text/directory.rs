@@ -15,18 +15,18 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Announce {
     /// The full name of the key
-    name: String,
+    pub name: String,
     /// The ID used by the server when publishing CBOR updates for this key. This can be used with [`GetValues`] and [`Subscribe`]
     /// to receive the value associated with this key.
     ///
     /// [`GetValues`]: ../subscription/struct.GetValues.html
     /// [`Subscribe`]: ../subscription/struct.Subscribe.html
-    id: u32,
+    pub id: u32,
     /// The type of the data associated with this key
     #[serde(rename = "type")]
-    _type: DataType,
-    /// Whether this data will be persisted by the server.
-    persistent: bool,
+    pub _type: DataType,
+    /// Any flags associated with this entry
+    pub flags: Vec<String>,
 }
 
 /// Key Removed Message
@@ -40,9 +40,9 @@ pub struct Announce {
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Unannounce {
     /// The name of the value
-    name: String,
+    pub name: String,
     /// The ID that was used when publishing value updates through CBOR messages.
-    id: u32,
+    pub id: u32,
 }
 
 impl_message!(Announce, Unannounce);

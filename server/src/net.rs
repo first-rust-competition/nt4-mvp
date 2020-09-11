@@ -25,15 +25,16 @@ impl Stream for NTSocket {
         match futures::ready!(Stream::poll_next(Pin::new(&mut self.sock), cx)) {
             Some(msg) => match msg {
                 Ok(Message::Binary(blob)) => {
+                    
                     // Filter out invalid messages for now
                     Poll::Ready(Some(Ok(NTMessage::Binary(
-                        CborMessage::from_slice(&blob[..])
+                        NTBinaryMessage::from_slice(&blob[..])
                             .into_iter()
                             .filter_map(|msg| msg.ok())
                             .collect(),
                     ))))
                 }
-                Ok(Message::Text(text)) => match serde_json::from_str::<NTTextMessage>(&text) {
+                Ok(Message::Text(text)) => match serde_json::from_str::<Vec<NTTextMessage>>(&text) {
                     Ok(msg) => Poll::Ready(Some(Ok(NTMessage::Text(msg)))),
                     Err(e) => Poll::Ready(Some(Err(Error::JSON(e)))),
                 },
@@ -63,7 +64,7 @@ impl Sink<NTMessage> for NTSocket {
             NTMessage::Binary(msg) => {
                 let frame = msg
                     .into_iter()
-                    .map(|msg| serde_cbor::to_vec(&msg).unwrap())
+                    .map(|msg| rmp_serde::to_vec(&msg).unwrap())
                     .flatten()
                     .collect::<Vec<u8>>();
                 Sink::start_send(Pin::new(&mut self.sock), Message::Binary(frame))
