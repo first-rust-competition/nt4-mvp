@@ -36,6 +36,13 @@ pub struct ConnectedClient {
     next_pub_id: i32,
 }
 
+/// A loop over the read-half of a connected peer
+///
+/// This loop continuously reads from the stream, forwarding applicable messages and reporting errors where applicable
+///
+/// When the stream is closed it notifies the server with [`ServerMessage::ClientDisconnected`] and is terminated.
+///
+/// [`ServerMessage::ClientDisconnected`]: ../server/enum.ServerMessage.html#variant.ClientDisconnected
 async fn client_loop(
     mut rx: SplitStream<NTSocket>,
     tx: Sender<ServerMessage>,
