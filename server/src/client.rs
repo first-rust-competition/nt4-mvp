@@ -1,14 +1,14 @@
 use crate::entry::Topic;
 use crate::net::NTSocket;
-use crate::server::{NTServer, ServerMessage};
-use async_std::sync::{MutexGuard, Sender};
+use crate::server::ServerMessage;
+use async_std::sync::Sender;
 use async_std::task;
 use futures::prelude::*;
 use futures::stream::{SplitSink, SplitStream};
 use log::*;
 use proto::prelude::directory::{Announce, Unannounce};
 use proto::prelude::subscription::{Subscribe, Unsubscribe};
-use proto::prelude::{MessageValue, NTMessage, NTTextMessage, NTValue};
+use proto::prelude::{NTMessage, NTValue};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
@@ -29,6 +29,7 @@ pub struct TopicSnapshot {
 pub struct ConnectedClient {
     net_tx: SplitSink<NTSocket, NTMessage>,
     pub subs: HashMap<u32, Subscription>,
+    pub sub_loop_channels: HashMap<u32, Sender<()>>,
     pub pub_ids: HashMap<String, i32>,
     pub pubs: Vec<String>,
     pub queued_updates: Vec<TopicSnapshot>,
@@ -69,6 +70,7 @@ impl ConnectedClient {
         ConnectedClient {
             net_tx,
             subs: HashMap::new(),
+            sub_loop_channels: HashMap::new(),
             pub_ids: HashMap::new(),
             queued_updates: Vec::new(),
             next_pub_id: 1,
@@ -80,6 +82,11 @@ impl ConnectedClient {
         self.subs
             .values()
             .any(|sub| sub.prefixes.iter().any(|prefix| name.starts_with(prefix)))
+    }
+
+    pub fn subscription(&self, name: &str) -> Option<&Subscription> {
+        self.subs.values()
+            .find(|sub| sub.prefixes.iter().any(|prefix| name.starts_with(prefix)))
     }
 
     pub fn announce(&mut self, entry: &Topic) -> Announce {
@@ -113,15 +120,7 @@ impl ConnectedClient {
         self.pub_ids.get(name).map(|id| *id)
     }
 
-    pub fn ids_matching_prefix(&self, prefix: &str) -> Vec<i32> {
-        self.pub_ids
-            .iter()
-            .filter(|(name, _)| name.starts_with(prefix))
-            .map(|(_, id)| *id)
-            .collect()
-    }
-
-    pub fn subscribe(&mut self, packet: Subscribe) {
+    pub fn subscribe(&mut self, packet: Subscribe) -> Subscription {
         let mut sub = Subscription {
             prefixes: packet.prefixes,
             immediate: false,
@@ -135,14 +134,22 @@ impl ConnectedClient {
             sub.periodic = opts.periodic;
         }
 
-        self.subs.insert(packet.subuid, sub);
+        self.subs.insert(packet.subuid, sub.clone());
+        sub
     }
 
-    pub fn unsubscribe(&mut self, packet: Unsubscribe) {
+    pub fn subscribe_channel(&mut self, subuid: u32, ch: Sender<()>) {
+        self.sub_loop_channels.insert(subuid, ch);
+    }
+
+    pub async fn unsubscribe(&mut self, packet: Unsubscribe) {
         self.subs.remove(&packet.subuid);
+        if let Some(ch) = self.sub_loop_channels.remove(&packet.subuid) {
+            ch.send(()).await;
+        }
     }
 
     pub async fn send_message(&mut self, msg: NTMessage) {
-        self.net_tx.send(msg).await;
+        let _ = self.net_tx.send(msg).await;
     }
 }

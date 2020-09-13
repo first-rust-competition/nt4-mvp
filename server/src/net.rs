@@ -1,9 +1,8 @@
 use crate::error::Error;
 use async_std::net::TcpStream;
-use async_tungstenite::tungstenite::{Error as WsError, Message};
+use async_tungstenite::tungstenite::Message;
 use async_tungstenite::WebSocketStream;
 use futures::prelude::*;
-use futures::stream::{SplitSink, SplitStream};
 use futures_util::core_reexport::pin::Pin;
 use futures_util::core_reexport::task::{Context, Poll};
 use proto::prelude::*;
