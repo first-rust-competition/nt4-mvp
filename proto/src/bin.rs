@@ -106,7 +106,7 @@ pub struct NTBinaryMessage {
     /// The ID associated with the given value
     ///
     /// This value is received from the textual half of the protocol, where its relation with a NetworkTables key is specified.
-    pub id: u32,
+    pub id: i32,
     /// A timestamp associated with this change
     ///
     /// This timestamp is represented in microseconds
@@ -179,8 +179,8 @@ impl NTBinaryMessage {
             match value {
                 Ok(Value::Array(values)) => {
                     let id = match &values[0] {
-                        Value::Integer(id) => match id.as_u64() {
-                            Some(id) => id as u32,
+                        Value::Integer(id) => match id.as_i64() {
+                            Some(id) => id as i32,
                             None => {
                                 messages.push(Err(DecodeError::InvalidId(values[0].clone())));
                                 continue;

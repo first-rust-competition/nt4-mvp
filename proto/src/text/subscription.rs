@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct GetValues {
     /// The identifiers the client wishes to receive the values of
-    pub ids: Vec<u32>,
+    pub ids: Vec<i32>,
 }
 
 /// Subscribe Message

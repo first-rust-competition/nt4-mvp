@@ -47,12 +47,11 @@ async fn tcp_loop(state: Arc<Mutex<NTServer>>, tx: Sender<ServerMessage>) -> any
                         .status(StatusCode::BAD_REQUEST)
                         .body(Some("Protocol 'networktables.first.wpi.edu' required to communicate with this server".to_string()))
                         .unwrap())
-
                 }
             }
         }).await;
 
-        if let Ok(mut sock) = sock {
+        if let Ok(sock) = sock {
             log::info!("Client assigned CID {}", cid);
             let client = ConnectedClient::new(NTSocket::new(sock), tx.clone(), cid);
             state.lock().await.clients.insert(cid, client);

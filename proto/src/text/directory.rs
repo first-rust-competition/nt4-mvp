@@ -17,7 +17,7 @@ pub struct Announce {
     ///
     /// [`GetValues`]: ../subscription/struct.GetValues.html
     /// [`Subscribe`]: ../subscription/struct.Subscribe.html
-    pub id: u32,
+    pub id: i32,
     /// The type of the data associated with this key
     #[serde(rename = "type")]
     pub _type: DataType,
@@ -35,7 +35,7 @@ pub struct Unannounce {
     /// The name of the value
     pub name: String,
     /// The ID that was used when publishing value updates through CBOR messages.
-    pub id: u32,
+    pub id: i32,
 }
 
 impl_message!(Announce, Unannounce);

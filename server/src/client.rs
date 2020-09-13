@@ -22,8 +22,8 @@ pub struct Subscription {
 pub struct ConnectedClient {
     net_tx: SplitSink<NTSocket, NTMessage>,
     pub subs: HashMap<u32, Subscription>,
-    pub_ids: HashMap<String, u32>,
-    next_pub_id: u32,
+    pub_ids: HashMap<String, i32>,
+    next_pub_id: i32,
 }
 
 async fn client_loop(mut rx: SplitStream<NTSocket>, tx: Sender<ServerMessage>, cid: u32) -> anyhow::Result<()> {
@@ -85,15 +85,15 @@ impl ConnectedClient {
         }
     }
 
-    pub fn id_to_name(&self, id: u32) -> Option<&String> {
+    pub fn id_to_name(&self, id: i32) -> Option<&String> {
         self.pub_ids.iter().find(|(_, pub_id)| **pub_id == id).map(|(name, _)| name)
     }
 
-    pub fn lookup_id(&self, name: &str) -> Option<u32> {
+    pub fn lookup_id(&self, name: &str) -> Option<i32> {
         self.pub_ids.get(name).map(|id| *id)
     }
 
-    pub fn ids_matching_prefix(&self, prefix: &str) -> Vec<u32> {
+    pub fn ids_matching_prefix(&self, prefix: &str) -> Vec<i32> {
         self.pub_ids.iter()
             .filter(|(name, _)| name.starts_with(prefix))
             .map(|(_, id)| *id)
