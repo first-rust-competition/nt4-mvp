@@ -173,6 +173,27 @@ async fn channel_loop(
                         }
                         MessageValue::Subscribe(sub) => {
                             let client = state.clients.get_mut(&cid).unwrap();
+
+                            let mut updates = Vec::new();
+                            for prefix in &sub.prefixes {
+                                for (_, topic)in state.entries.iter().filter(|(key, _)| key.starts_with(prefix)) {
+                                    updates.push(NTBinaryMessage {
+                                        id: client.lookup_id(&topic.name).unwrap(),
+                                        timestamp: topic.timestamp,
+                                        value: topic.value.clone()
+                                    });
+                                }
+                            }
+
+                            let batched = updates.into_iter().chunks(MAX_BATCHING_SIZE)
+                                .into_iter()
+                                .map(|batch| NTMessage::Binary(batch.collect()))
+                                .collect::<Vec<NTMessage>>();
+
+                            for msg in batched {
+                                client.send_message(msg).await;
+                            }
+
                             client.subscribe(sub);
                         }
                         MessageValue::Unsubscribe(unsub) => {
@@ -240,6 +261,7 @@ async fn broadcast_loop(state: Arc<Mutex<NTServer>>) {
             let mut updates = Vec::new();
             for (_, sub)in &client.subs {
                 if sub.logging {
+                    // Subscribers with this option need to receive every
                     for (name, group) in &client.queued_updates.iter()
                         .group_by(|snapshot| &snapshot.name)
                     {
