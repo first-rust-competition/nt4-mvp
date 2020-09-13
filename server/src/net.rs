@@ -13,7 +13,7 @@ pub struct NTSocket {
 }
 
 impl NTSocket {
-    pub fn from_socket(sock: WebSocketStream<TcpStream>) -> NTSocket {
+    pub fn new(sock: WebSocketStream<TcpStream>) -> NTSocket {
         NTSocket { sock }
     }
 }

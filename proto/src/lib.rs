@@ -16,6 +16,7 @@ pub mod prelude {
     pub use crate::text::*;
 
     /// An enum wrapping the possible frames that can be received in NT4 communications
+    #[derive(Debug)]
     pub enum NTMessage {
         /// A JSON-encoded message framed as WS TEXT
         Text(Vec<NTTextMessage>),

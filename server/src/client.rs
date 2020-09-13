@@ -13,7 +13,7 @@ use proto::prelude::subscription::{Subscribe, Unsubscribe};
 
 #[derive(Clone, Debug)]
 pub struct Subscription {
-    pub ids: Vec<u32>,
+    pub prefixes: Vec<String>,
     pub immediate: bool,
     pub periodic: f64,
     pub logging: bool,
@@ -42,6 +42,7 @@ async fn client_loop(mut rx: SplitStream<NTSocket>, tx: Sender<ServerMessage>, c
     }
 
     log::info!("Client loop for CID {} terminated", cid);
+    tx.send(ServerMessage::ClientDisconnected(cid)).await;
 
     Ok(())
 }
@@ -60,8 +61,8 @@ impl ConnectedClient {
         }
     }
 
-    pub fn subscribed_to(&self, id: u32) -> bool {
-        self.subs.values().any(|sub| sub.ids.iter().any(|it| *it == id))
+    pub fn subscribed_to(&self, prefix: &str) -> bool {
+        self.subs.values().any(|sub| sub.prefixes.iter().any(|it| it == prefix))
     }
 
     pub fn announce(&mut self, entry: &Topic) -> Announce {
@@ -88,9 +89,20 @@ impl ConnectedClient {
         self.pub_ids.iter().find(|(_, pub_id)| **pub_id == id).map(|(name, _)| name)
     }
 
+    pub fn lookup_id(&self, name: &str) -> Option<u32> {
+        self.pub_ids.get(name).map(|id| *id)
+    }
+
+    pub fn ids_matching_prefix(&self, prefix: &str) -> Vec<u32> {
+        self.pub_ids.iter()
+            .filter(|(name, _)| name.starts_with(prefix))
+            .map(|(_, id)| *id)
+            .collect()
+    }
+
     pub fn subscribe(&mut self, packet: Subscribe) {
         let mut sub = Subscription {
-            ids: packet.ids,
+            prefixes: packet.prefixes,
             immediate: false,
             periodic: 0.0,
             logging: false

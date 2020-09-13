@@ -8,10 +8,6 @@ use serde::{Deserialize, Serialize};
 /// Key Announcement Message
 ///
 /// Sent asynchronously from the server to a subscribed client to notify it of a new key in a directory.
-///
-/// See: [`Listen`]
-///
-/// [`Listen`]: ./struct.Listen.html
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Announce {
     /// The full name of the key
@@ -33,9 +29,6 @@ pub struct Announce {
 ///
 /// Sent asynchronously from the server to indicate to a subscribed client that a value that was previously shared by [`Announce`] has been deleted.
 ///
-/// See: [`Listen`]
-///
-/// [`Listen`]: ./struct.Listen.html
 /// [`Announce`]: ./struct.Announce.html
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Unannounce {

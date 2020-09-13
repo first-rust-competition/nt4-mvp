@@ -186,7 +186,7 @@ impl Into<u8> for DataType {
 /// These implementors are strongly typed equivalents to the `data` field on this type, and contain more information about how they should be used.
 ///
 /// [`MessageBody`]: ./trait.MessageBody.html
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct NTTextMessage {
     #[serde(rename = "type")]
     _type: MessageType,

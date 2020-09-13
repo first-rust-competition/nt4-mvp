@@ -1,5 +1,5 @@
 use crate::client::ConnectedClient;
-use proto::prelude::{NTTextMessage, NTBinaryMessage, NTMessage, MessageValue, DataType, MessageBody};
+use proto::prelude::{NTTextMessage, NTBinaryMessage, NTMessage, MessageValue, DataType, MessageBody, NTValue};
 use std::collections::HashMap;
 use async_std::sync::{Arc, Mutex, Sender, channel, Receiver};
 use async_std::task;
@@ -11,7 +11,13 @@ use proto::prelude::directory::Announce;
 use std::ops::DerefMut;
 use itertools::Itertools;
 use std::time::Duration;
-use futures::StreamExt;
+use futures::{StreamExt, SinkExt};
+use async_tungstenite::tungstenite::handshake::server::{Request, Response, ErrorResponse};
+use async_tungstenite::tungstenite::http::{HeaderValue, StatusCode};
+use async_tungstenite::tungstenite::protocol::CloseFrame;
+use async_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use std::borrow::Cow;
+use async_tungstenite::tungstenite::{Message, Error};
 
 pub static MAX_BATCHING_SIZE: usize = 5;
 
@@ -27,12 +33,31 @@ async fn tcp_loop(state: Arc<Mutex<NTServer>>, tx: Sender<ServerMessage>) -> any
     while let Ok((sock, addr)) = listener.accept().await {
         log::info!("TCP connection at {}", addr);
         let cid = rand::random::<u32>();
-        let sock = NTSocket::from_socket(async_tungstenite::accept_async(sock).await?);
-        log::info!("Got client connection from {}", addr);
-        log::info!("Client assigned CID {}", cid);
-        let client = ConnectedClient::new(sock, tx.clone(), cid);
-        state.lock().await.clients.insert(cid, client);
-        task::spawn(update_new_client(cid, state.clone()));
+        let sock = async_tungstenite::accept_hdr_async(sock, |req: &Request, mut res: Response| {
+            let ws_proto = req.headers().iter().find(|(hdr, _)| **hdr == "Sec-WebSocket-Protocol");
+
+            match ws_proto.map(|(_, s)| s.to_str().unwrap()) {
+                Some("networktables.first.wpi.edu") => {
+                    res.headers_mut().insert("Sec-WebSocket-Protocol", HeaderValue::from_static("networktables.first.wpi.edu"));
+                    Ok(res)
+                }
+                _ => {
+                    log::error!("Rejecting client that did not specify correct subprotocol");
+                    Err(Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .body(Some("Protocol 'networktables.first.wpi.edu' required to communicate with this server".to_string()))
+                        .unwrap())
+
+                }
+            }
+        }).await;
+
+        if let Ok(mut sock) = sock {
+            log::info!("Client assigned CID {}", cid);
+            let client = ConnectedClient::new(NTSocket::new(sock), tx.clone(), cid);
+            state.lock().await.clients.insert(cid, client);
+            task::spawn(update_new_client(cid, state.clone()));
+        }
     }
     Ok(())
 }
@@ -56,7 +81,6 @@ async fn update_new_client(id: u32, state: Arc<Mutex<NTServer>>) {
     if batch.len() > 0 && batch.len() < MAX_BATCHING_SIZE {
         client.send_message(NTMessage::Text(batch)).await;
     }
-
 }
 
 
@@ -64,6 +88,7 @@ async fn channel_loop(state: Arc<Mutex<NTServer>>, rx: Receiver<ServerMessage>) 
     while let Ok(msg) = rx.recv().await {
         match msg {
             ServerMessage::ClientDisconnected(cid) => {
+                log::info!("Received disconnect from CID {}", cid);
                 state.lock().await.clients.remove(&cid);
             }
             ServerMessage::ControlMessage(msg, cid) => {
@@ -83,7 +108,7 @@ async fn channel_loop(state: Arc<Mutex<NTServer>>, rx: Receiver<ServerMessage>) 
                             }
                         }
                         MessageValue::PublishRel(rel) => {
-                            let publishers =  state.pub_count.get_mut(&rel.name).unwrap();
+                            let publishers = state.pub_count.get_mut(&rel.name).unwrap();
                             *publishers -= 1;
 
                             if *publishers == 0 {
@@ -103,7 +128,7 @@ async fn channel_loop(state: Arc<Mutex<NTServer>>, rx: Receiver<ServerMessage>) 
                                 .map(|(id, name)| NTBinaryMessage {
                                     id,
                                     timestamp: 0,
-                                    value: state.entries[name].value.clone()
+                                    value: state.entries[name].value.clone(),
                                 })
                                 .chunks(MAX_BATCHING_SIZE)
                                 .into_iter()
@@ -140,7 +165,7 @@ async fn channel_loop(state: Arc<Mutex<NTServer>>, rx: Receiver<ServerMessage>) 
                     log::info!("Received update message for name {}. New value {:?}", name, msg.value);
 
                     let entry = state.entries.get_mut(name).unwrap();
-                    entry.value = msg.value;
+                    entry.set_value(msg.value);
                 }
 
                 // for (_, client) in state.clients.iter_mut().filter(|(id, _)| **id != cid) {
@@ -164,34 +189,34 @@ async fn broadcast_loop(state: Arc<Mutex<NTServer>>) {
         let mut state = state.lock().await;
         let state = state.deref_mut();
 
-        let entries = &state.entries;
+        for (cid, client) in state.clients.iter_mut() {
+            let sub_prefixes = client.subs.clone().into_iter()
+                .map(|(_, sub)| sub)
+                .flat_map(|sub| sub.prefixes)
+                .collect::<Vec<String>>();
 
-        // :bolb:
-        // TODO: oh dear god
-        let yikes = state.clients.values_mut()
-            .map(|client| (client.subs.clone().into_iter()
-                    .map(|(_, sub)| sub)
-                    .flat_map(|sub| sub.ids)
-                    .map(|id| (id, client.id_to_name(id)))
-                    .map(|(id, name)| (id, entries[name.unwrap()].value.clone()))
+            for prefix in sub_prefixes {
+                let messages = state.entries.iter()
+                    .filter(move |(name, _)| name.starts_with(&prefix))
+                    .filter(|(_, topic)| topic.is_dirty())
+                    .map(|(key, topic)| (client.lookup_id(key).unwrap(), topic.value.clone()))
                     .map(|(id, value)| NTBinaryMessage {
                         id,
                         timestamp: 0,
-                        value
+                        value,
                     })
                     .chunks(MAX_BATCHING_SIZE)
                     .into_iter()
                     .map(|batch| NTMessage::Binary(batch.collect()))
-                    .collect::<Vec<NTMessage>>(),
-                client
-            ))
-            .collect::<Vec<(Vec<NTMessage>, &mut ConnectedClient)>>();
+                    .collect::<Vec<NTMessage>>();
 
-        for (msgs, client) in yikes {
-            for msg in msgs {
-                client.send_message(msg).await;
+                for msg in messages {
+                    client.send_message(msg).await;
+                }
             }
         }
+
+        state.mark_clean();
     }
 }
 
@@ -213,6 +238,12 @@ impl NTServer {
         let entry = Topic::new(name.clone(), _type);
         self.pub_count.insert(name.clone(), 1);
         self.entries.insert(name, entry);
+    }
+
+    pub fn mark_clean(&mut self) {
+        for entry in self.entries.values_mut() {
+            entry.clear_dirty();
+        }
     }
 }
 
