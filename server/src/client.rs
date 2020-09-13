@@ -8,7 +8,7 @@ use futures::stream::{SplitSink, SplitStream};
 use log::*;
 use proto::prelude::directory::{Announce, Unannounce};
 use proto::prelude::subscription::{Subscribe, Unsubscribe};
-use proto::prelude::{MessageValue, NTMessage, NTTextMessage};
+use proto::prelude::{MessageValue, NTMessage, NTTextMessage, NTValue};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
@@ -19,10 +19,19 @@ pub struct Subscription {
     pub logging: bool,
 }
 
+#[derive(PartialEq, Clone, Debug)]
+pub struct TopicSnapshot {
+    pub name: String,
+    pub value: NTValue,
+    pub timestamp: u64,
+}
+
 pub struct ConnectedClient {
     net_tx: SplitSink<NTSocket, NTMessage>,
     pub subs: HashMap<u32, Subscription>,
     pub pub_ids: HashMap<String, i32>,
+    pub pubs: Vec<String>,
+    pub queued_updates: Vec<TopicSnapshot>,
     next_pub_id: i32,
 }
 
@@ -61,14 +70,16 @@ impl ConnectedClient {
             net_tx,
             subs: HashMap::new(),
             pub_ids: HashMap::new(),
+            queued_updates: Vec::new(),
             next_pub_id: 1,
+            pubs: Vec::new()
         }
     }
 
-    pub fn subscribed_to(&self, prefix: &str) -> bool {
+    pub fn subscribed_to(&self, name: &str) -> bool {
         self.subs
             .values()
-            .any(|sub| sub.prefixes.iter().any(|it| it == prefix))
+            .any(|sub| sub.prefixes.iter().any(|prefix| name.starts_with(prefix)))
     }
 
     pub fn announce(&mut self, entry: &Topic) -> Announce {

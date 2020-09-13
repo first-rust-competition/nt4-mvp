@@ -1,11 +1,12 @@
 use proto::prelude::{DataType, NTValue};
+use crate::client::TopicSnapshot;
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct Topic {
     pub name: String,
     pub value: NTValue,
+    pub timestamp: u64,
     pub flags: Vec<String>,
-    pub dirty: bool,
 }
 
 impl Topic {
@@ -13,22 +14,22 @@ impl Topic {
         Topic {
             name,
             value: _type.default_value(),
+            timestamp: 0,
             flags: vec![],
-            dirty: false,
         }
     }
 
-    pub fn set_value(&mut self, value: NTValue) {
+    pub fn set_value(&mut self, value: NTValue, timestamp: u64) {
         self.value = value;
-        self.dirty = true;
+        self.timestamp = timestamp;
     }
 
-    pub fn is_dirty(&self) -> bool {
-        self.dirty
-    }
-
-    pub fn clear_dirty(&mut self) {
-        self.dirty = false;
+    pub fn snapshot(&self) -> TopicSnapshot {
+        TopicSnapshot {
+            name: self.name.clone(),
+            value: self.value.clone(),
+            timestamp: self.timestamp
+        }
     }
 
     pub fn entry_type(&self) -> DataType {

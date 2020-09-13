@@ -94,8 +94,8 @@ async fn channel_loop(
                 log::info!("Received disconnect from CID {}", cid);
                 let mut state = state.lock().await;
                 if let Some(client) = state.clients.remove(&cid) {
-                    for key in client.pub_ids.keys() {
-                        let delete = match state.pub_count.get_mut(key) {
+                    for key in client.pubs.into_iter() {
+                        let delete = match state.pub_count.get_mut(&key) {
                             Some(cnt) => {
                                 *cnt -= 1;
                                 *cnt == 0
@@ -105,12 +105,12 @@ async fn channel_loop(
 
                         if delete {
                             log::info!("Deleting topic {}. No remaining publishers after client disconnection.", key);
-                            let topic = state.entries.remove(key).unwrap();
+                            let topic = state.entries.remove(&key).unwrap();
                             for client in state.clients.values_mut() {
                                 let msg = NTMessage::single_text(client.unannounce(&topic).into_message());
                                 client.send_message(msg).await;
                             }
-                            state.pub_count.remove(key);
+                            state.pub_count.remove(&key);
                         }
                     }
                 }
@@ -126,6 +126,9 @@ async fn channel_loop(
                             log::info!("Received publish request");
                             state.create_entry(req.name.clone(), req._type);
                             let entry = &state.entries[&req.name];
+
+                            let mut client = state.clients.get_mut(&cid).unwrap();
+                            client.pubs.push(req.name);
 
                             for client in state.clients.values_mut() {
                                 let msg = client.announce(entry).into_message();
@@ -188,21 +191,20 @@ async fn channel_loop(
 
                 let client = state.clients.get_mut(&cid).unwrap();
 
-                for msg in values {
+                let mut updates = Vec::new();
+                for mut msg in values {
                     if msg.id == -1 {
                         // Timestamp communication
                         let now = Local::now();
                         let timestamp = now.timestamp_nanos() as u64 / 1000; // Timestamp in us since Unix Epoch
-                        let resp = NTBinaryMessage {
-                            id: -1,
-                            timestamp,
-                            value: msg.value,
-                        };
-                        client.send_message(NTMessage::single_bin(resp)).await;
+                        // Update the message timestamp and send it back
+                        msg.timestamp = timestamp;
+                        client.send_message(NTMessage::single_bin(msg)).await;
                         log::info!("Immediately sending timestamp to client");
                         continue;
                     }
 
+                    log::info!("Performing lookup for ID {}", msg.id);
                     let name = client.id_to_name(msg.id).unwrap();
                     log::info!(
                         "Received update message for name {}. New value {:?}",
@@ -211,16 +213,15 @@ async fn channel_loop(
                     );
 
                     let entry = state.entries.get_mut(name).unwrap();
-                    entry.set_value(msg.value);
+                    entry.set_value(msg.value, msg.timestamp);
+                    updates.push(entry.snapshot());
                 }
 
-                // for (_, client) in state.clients.iter_mut().filter(|(id, _)| **id != cid) {
-                //     let values = values.clone().into_iter()
-                //         .filter(|update| client.subscribed_to(update.id))
-                //         .collect::<Vec<NTBinaryMessage>>();
-                //
-                //     client.send_message(NTMessage::Binary(values)).await;
-                // }
+                for client in state.clients.values_mut() {
+                    let mut iter = updates.iter().cloned().filter(|snapshot| client.subscribed_to(&snapshot.name))
+                        .collect();
+                    client.queued_updates.append(&mut iter);
+                }
             }
         }
     }
@@ -235,39 +236,45 @@ async fn broadcast_loop(state: Arc<Mutex<NTServer>>) {
         let mut state = state.lock().await;
         let state = state.deref_mut();
 
-        for (cid, client) in state.clients.iter_mut() {
-            let sub_prefixes = client
-                .subs
-                .clone()
-                .into_iter()
-                .map(|(_, sub)| sub)
-                .flat_map(|sub| sub.prefixes)
-                .collect::<Vec<String>>();
-
-            for prefix in sub_prefixes {
-                let messages = state
-                    .entries
-                    .iter()
-                    .filter(move |(name, _)| name.starts_with(&prefix))
-                    .filter(|(_, topic)| topic.is_dirty())
-                    .map(|(key, topic)| (client.lookup_id(key).unwrap(), topic.value.clone()))
-                    .map(|(id, value)| NTBinaryMessage {
-                        id,
-                        timestamp: 0,
-                        value,
-                    })
-                    .chunks(MAX_BATCHING_SIZE)
-                    .into_iter()
-                    .map(|batch| NTMessage::Binary(batch.collect()))
-                    .collect::<Vec<NTMessage>>();
-
-                for msg in messages {
-                    client.send_message(msg).await;
+        for client in state.clients.values_mut() {
+            let mut updates = Vec::new();
+            for (_, sub)in &client.subs {
+                if sub.logging {
+                    for (name, group) in &client.queued_updates.iter()
+                        .group_by(|snapshot| &snapshot.name)
+                    {
+                        for update in group {
+                            updates.push(NTBinaryMessage {
+                                id: client.lookup_id(name).unwrap(),
+                                timestamp: update.timestamp,
+                                value: update.value.clone()
+                            });
+                        }
+                    }
+                } else {
+                    for (name, group) in &client.queued_updates.iter()
+                        .group_by(|snapshot| &snapshot.name)
+                    {
+                        let snapshot = group.max_by(|s1, s2| s1.timestamp.cmp(&s2.timestamp)).unwrap();
+                        updates.push(NTBinaryMessage {
+                            id: client.lookup_id(name).unwrap(),
+                            timestamp: snapshot.timestamp,
+                            value: snapshot.value.clone()
+                        })
+                    }
                 }
+
+                client.queued_updates.clear();
+            }
+
+            let batched_updates = updates.into_iter()
+                .chunks(MAX_BATCHING_SIZE)
+                .into_iter().map(|chunk| chunk.collect())
+                .collect::<Vec<Vec<NTBinaryMessage>>>();
+            for msg in batched_updates {
+                client.send_message(NTMessage::Binary(msg)).await;
             }
         }
-
-        state.mark_clean();
     }
 }
 
@@ -293,12 +300,6 @@ impl NTServer {
         let entry = Topic::new(name.clone(), _type);
         self.pub_count.insert(name.clone(), 1);
         self.entries.insert(name, entry);
-    }
-
-    pub fn mark_clean(&mut self) {
-        for entry in self.entries.values_mut() {
-            entry.clear_dirty();
-        }
     }
 }
 
