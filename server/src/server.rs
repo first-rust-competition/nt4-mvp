@@ -18,6 +18,7 @@ use async_tungstenite::tungstenite::protocol::CloseFrame;
 use async_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use std::borrow::Cow;
 use async_tungstenite::tungstenite::{Message, Error};
+use chrono::offset::Local;
 
 pub static MAX_BATCHING_SIZE: usize = 5;
 
@@ -157,11 +158,26 @@ async fn channel_loop(state: Arc<Mutex<NTServer>>, rx: Receiver<ServerMessage>) 
                 let mut state = state.lock().await;
                 let state = state.deref_mut();
 
-                let client = &state.clients[&cid];
+                let client = state.clients.get_mut(&cid).unwrap();
 
                 for msg in values {
+                    if msg.id == -1 {
+                        // Timestamp communication
+                        let now = Local::now();
+                        let timestamp = now.timestamp_nanos() as u64 / 1000; // Timestamp in us since Unix Epoch
+                        let resp = NTBinaryMessage {
+                            id: -1,
+                            timestamp,
+                            value: msg.value
+                        };
+                        client.send_message(NTMessage::single_bin(resp)).await;
+                        log::info!("Immediately sending timestamp to client");
+                        continue;
+                    }
+
                     let name = client.id_to_name(msg.id).unwrap();
                     log::info!("Received update message for name {}. New value {:?}", name, msg.value);
+
 
                     let entry = state.entries.get_mut(name).unwrap();
                     entry.set_value(msg.value);
