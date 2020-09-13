@@ -1,4 +1,4 @@
-use proto::prelude::{NTValue, DataType};
+use proto::prelude::{DataType, NTValue};
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct Topic {
@@ -14,7 +14,7 @@ impl Topic {
             name,
             value: _type.default_value(),
             flags: vec![],
-            dirty: false
+            dirty: false,
         }
     }
 

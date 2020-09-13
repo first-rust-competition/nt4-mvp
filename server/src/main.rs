@@ -1,11 +1,11 @@
 use crate::server::NTServer;
 use log::LevelFilter;
 
-mod net;
-mod error;
 mod client;
-mod server;
 mod entry;
+mod error;
+mod net;
+mod server;
 
 fn main() {
     env_logger::init();

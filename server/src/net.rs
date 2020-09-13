@@ -25,8 +25,7 @@ impl Stream for NTSocket {
         match futures::ready!(Stream::poll_next(Pin::new(&mut self.sock), cx)) {
             Some(msg) => match msg {
                 Ok(Message::Binary(blob)) => {
-                    
-                    // Filter out invalid messages for now
+                    // Ignore any invalid messages in the data stream
                     Poll::Ready(Some(Ok(NTMessage::Binary(
                         NTBinaryMessage::from_slice(&blob[..])
                             .into_iter()
@@ -34,10 +33,12 @@ impl Stream for NTSocket {
                             .collect(),
                     ))))
                 }
-                Ok(Message::Text(text)) => match serde_json::from_str::<Vec<NTTextMessage>>(&text) {
-                    Ok(msg) => Poll::Ready(Some(Ok(NTMessage::Text(msg)))),
-                    Err(e) => Poll::Ready(Some(Err(Error::JSON(e)))),
-                },
+                Ok(Message::Text(text)) => {
+                    match serde_json::from_str::<Vec<NTTextMessage>>(&text) {
+                        Ok(msg) => Poll::Ready(Some(Ok(NTMessage::Text(msg)))),
+                        Err(e) => Poll::Ready(Some(Err(Error::JSON(e)))),
+                    }
+                }
                 Ok(Message::Close(_)) => Poll::Ready(Some(Ok(NTMessage::Close))),
                 // Don't care about control frames for now
                 Ok(_) => Poll::Pending,
@@ -71,8 +72,7 @@ impl Sink<NTMessage> for NTSocket {
                     .map_err(Into::into)
             }
             NTMessage::Close => {
-                Sink::start_send(Pin::new(&mut self.sock), Message::Close(None))
-                    .map_err(Into::into)
+                Sink::start_send(Pin::new(&mut self.sock), Message::Close(None)).map_err(Into::into)
             }
         }
     }

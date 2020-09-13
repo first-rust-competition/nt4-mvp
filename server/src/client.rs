@@ -1,15 +1,15 @@
-use crate::net::NTSocket;
-use std::collections::HashMap;
-use async_std::sync::{Sender, MutexGuard};
-use async_std::task;
-use crate::server::{ServerMessage, NTServer};
-use proto::prelude::{NTMessage, MessageValue, NTTextMessage};
-use futures::prelude::*;
-use futures::stream::{SplitStream, SplitSink};
-use log::*;
 use crate::entry::Topic;
+use crate::net::NTSocket;
+use crate::server::{NTServer, ServerMessage};
+use async_std::sync::{MutexGuard, Sender};
+use async_std::task;
+use futures::prelude::*;
+use futures::stream::{SplitSink, SplitStream};
+use log::*;
 use proto::prelude::directory::{Announce, Unannounce};
 use proto::prelude::subscription::{Subscribe, Unsubscribe};
+use proto::prelude::{MessageValue, NTMessage, NTTextMessage};
+use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct Subscription {
@@ -22,11 +22,15 @@ pub struct Subscription {
 pub struct ConnectedClient {
     net_tx: SplitSink<NTSocket, NTMessage>,
     pub subs: HashMap<u32, Subscription>,
-    pub_ids: HashMap<String, i32>,
+    pub pub_ids: HashMap<String, i32>,
     next_pub_id: i32,
 }
 
-async fn client_loop(mut rx: SplitStream<NTSocket>, tx: Sender<ServerMessage>, cid: u32) -> anyhow::Result<()> {
+async fn client_loop(
+    mut rx: SplitStream<NTSocket>,
+    tx: Sender<ServerMessage>,
+    cid: u32,
+) -> anyhow::Result<()> {
     while let Some(packet) = rx.next().await {
         match packet {
             Ok(msg) => match msg {
@@ -36,7 +40,7 @@ async fn client_loop(mut rx: SplitStream<NTSocket>, tx: Sender<ServerMessage>, c
                     tx.send(ServerMessage::ClientDisconnected(cid)).await;
                     return Ok(());
                 }
-            }
+            },
             Err(e) => error!("Encountered error decoding frame from client: {}", e),
         }
     }
@@ -62,7 +66,9 @@ impl ConnectedClient {
     }
 
     pub fn subscribed_to(&self, prefix: &str) -> bool {
-        self.subs.values().any(|sub| sub.prefixes.iter().any(|it| it == prefix))
+        self.subs
+            .values()
+            .any(|sub| sub.prefixes.iter().any(|it| it == prefix))
     }
 
     pub fn announce(&mut self, entry: &Topic) -> Announce {
@@ -73,7 +79,7 @@ impl ConnectedClient {
             name: entry.name.clone(),
             id,
             _type: entry.entry_type(),
-            flags: entry.flags.clone()
+            flags: entry.flags.clone(),
         }
     }
 
@@ -81,12 +87,15 @@ impl ConnectedClient {
         let id = self.pub_ids.remove(&entry.name).unwrap();
         Unannounce {
             name: entry.name.clone(),
-            id
+            id,
         }
     }
 
     pub fn id_to_name(&self, id: i32) -> Option<&String> {
-        self.pub_ids.iter().find(|(_, pub_id)| **pub_id == id).map(|(name, _)| name)
+        self.pub_ids
+            .iter()
+            .find(|(_, pub_id)| **pub_id == id)
+            .map(|(name, _)| name)
     }
 
     pub fn lookup_id(&self, name: &str) -> Option<i32> {
@@ -94,7 +103,8 @@ impl ConnectedClient {
     }
 
     pub fn ids_matching_prefix(&self, prefix: &str) -> Vec<i32> {
-        self.pub_ids.iter()
+        self.pub_ids
+            .iter()
             .filter(|(name, _)| name.starts_with(prefix))
             .map(|(_, id)| *id)
             .collect()
@@ -105,7 +115,7 @@ impl ConnectedClient {
             prefixes: packet.prefixes,
             immediate: false,
             periodic: 0.0,
-            logging: false
+            logging: false,
         };
 
         if let Some(opts) = packet.options {

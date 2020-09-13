@@ -1,24 +1,26 @@
 use crate::client::ConnectedClient;
-use proto::prelude::{NTTextMessage, NTBinaryMessage, NTMessage, MessageValue, DataType, MessageBody, NTValue};
-use std::collections::HashMap;
-use async_std::sync::{Arc, Mutex, Sender, channel, Receiver};
-use async_std::task;
-use async_std::net::TcpListener;
-use crate::net::NTSocket;
-use rand::Rng;
 use crate::entry::Topic;
-use proto::prelude::directory::Announce;
-use std::ops::DerefMut;
-use itertools::Itertools;
-use std::time::Duration;
-use futures::{StreamExt, SinkExt};
-use async_tungstenite::tungstenite::handshake::server::{Request, Response, ErrorResponse};
+use crate::net::NTSocket;
+use async_std::net::TcpListener;
+use async_std::sync::{channel, Arc, Mutex, Receiver, Sender};
+use async_std::task;
+use async_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use async_tungstenite::tungstenite::http::{HeaderValue, StatusCode};
-use async_tungstenite::tungstenite::protocol::CloseFrame;
 use async_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use std::borrow::Cow;
-use async_tungstenite::tungstenite::{Message, Error};
+use async_tungstenite::tungstenite::protocol::CloseFrame;
+use async_tungstenite::tungstenite::{Error, Message};
 use chrono::offset::Local;
+use futures::{SinkExt, StreamExt};
+use itertools::Itertools;
+use proto::prelude::directory::Announce;
+use proto::prelude::{
+    DataType, MessageBody, MessageValue, NTBinaryMessage, NTMessage, NTTextMessage, NTValue,
+};
+use rand::Rng;
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::ops::DerefMut;
+use std::time::Duration;
 
 pub static MAX_BATCHING_SIZE: usize = 5;
 
@@ -68,28 +70,51 @@ async fn update_new_client(id: u32, state: Arc<Mutex<NTServer>>) {
     let state = state.deref_mut();
     let client = state.clients.get_mut(&id).unwrap();
 
-    let mut batch = Vec::with_capacity(MAX_BATCHING_SIZE);
-    for entry in state.entries.values() {
-        batch.push(client.announce(entry).into_message());
+    let batches = state
+        .entries
+        .values()
+        .map(|value| client.announce(value).into_message())
+        .chunks(MAX_BATCHING_SIZE)
+        .into_iter()
+        .map(|batch| NTMessage::Text(batch.collect()))
+        .collect::<Vec<NTMessage>>();
 
-        if batch.len() == MAX_BATCHING_SIZE {
-            // Im pretty sure split_off effectively does the same thing as cloning and clearing but it hides it away
-            client.send_message(NTMessage::Text(batch.split_off(0))).await;
-        }
-    }
-
-    if batch.len() > 0 && batch.len() < MAX_BATCHING_SIZE {
-        client.send_message(NTMessage::Text(batch)).await;
+    for msg in batches {
+        client.send_message(msg).await;
     }
 }
 
-
-async fn channel_loop(state: Arc<Mutex<NTServer>>, rx: Receiver<ServerMessage>) -> anyhow::Result<()> {
+async fn channel_loop(
+    state: Arc<Mutex<NTServer>>,
+    rx: Receiver<ServerMessage>,
+) -> anyhow::Result<()> {
     while let Ok(msg) = rx.recv().await {
         match msg {
             ServerMessage::ClientDisconnected(cid) => {
                 log::info!("Received disconnect from CID {}", cid);
-                state.lock().await.clients.remove(&cid);
+                let mut state = state.lock().await;
+                if let Some(client) = state.clients.remove(&cid) {
+                    for key in client.pub_ids.keys() {
+                        let delete = match state.pub_count.get_mut(key) {
+                            Some(cnt) => {
+                                *cnt -= 1;
+                                *cnt == 0
+                            }
+                            None => false
+                        };
+
+                        if delete {
+                            log::info!("Deleting topic {}. No remaining publishers after client disconnection.", key);
+                            let topic = state.entries.remove(key).unwrap();
+                            for client in state.clients.values_mut() {
+                                let msg = NTMessage::single_text(client.unannounce(&topic).into_message());
+                                client.send_message(msg).await;
+                            }
+                            state.pub_count.remove(key);
+                        }
+                    }
+                }
+
             }
             ServerMessage::ControlMessage(msg, cid) => {
                 let mut state = state.lock().await;
@@ -113,6 +138,7 @@ async fn channel_loop(state: Arc<Mutex<NTServer>>, rx: Receiver<ServerMessage>) 
 
                             if *publishers == 0 {
                                 let entry = state.entries.remove(&rel.name).unwrap();
+                                log::info!("Deleting topic {}, received pubrel from last publisher", entry.name);
                                 for client in state.clients.values_mut() {
                                     let msg = client.unannounce(&entry).into_message();
                                     client.send_message(NTMessage::single_text(msg)).await;
@@ -123,7 +149,9 @@ async fn channel_loop(state: Arc<Mutex<NTServer>>, rx: Receiver<ServerMessage>) 
                         MessageValue::GetValues(gv) => {
                             let client = state.clients.get(&cid).unwrap();
 
-                            let packets = gv.ids.into_iter()
+                            let packets = gv
+                                .ids
+                                .into_iter()
                                 .map(|id| (id, client.id_to_name(id).unwrap()))
                                 .map(|(id, name)| NTBinaryMessage {
                                     id,
@@ -168,7 +196,7 @@ async fn channel_loop(state: Arc<Mutex<NTServer>>, rx: Receiver<ServerMessage>) 
                         let resp = NTBinaryMessage {
                             id: -1,
                             timestamp,
-                            value: msg.value
+                            value: msg.value,
                         };
                         client.send_message(NTMessage::single_bin(resp)).await;
                         log::info!("Immediately sending timestamp to client");
@@ -176,8 +204,11 @@ async fn channel_loop(state: Arc<Mutex<NTServer>>, rx: Receiver<ServerMessage>) 
                     }
 
                     let name = client.id_to_name(msg.id).unwrap();
-                    log::info!("Received update message for name {}. New value {:?}", name, msg.value);
-
+                    log::info!(
+                        "Received update message for name {}. New value {:?}",
+                        name,
+                        msg.value
+                    );
 
                     let entry = state.entries.get_mut(name).unwrap();
                     entry.set_value(msg.value);
@@ -205,13 +236,18 @@ async fn broadcast_loop(state: Arc<Mutex<NTServer>>) {
         let state = state.deref_mut();
 
         for (cid, client) in state.clients.iter_mut() {
-            let sub_prefixes = client.subs.clone().into_iter()
+            let sub_prefixes = client
+                .subs
+                .clone()
+                .into_iter()
                 .map(|(_, sub)| sub)
                 .flat_map(|sub| sub.prefixes)
                 .collect::<Vec<String>>();
 
             for prefix in sub_prefixes {
-                let messages = state.entries.iter()
+                let messages = state
+                    .entries
+                    .iter()
                     .filter(move |(name, _)| name.starts_with(&prefix))
                     .filter(|(_, topic)| topic.is_dirty())
                     .map(|(key, topic)| (client.lookup_id(key).unwrap(), topic.value.clone()))
@@ -237,7 +273,11 @@ async fn broadcast_loop(state: Arc<Mutex<NTServer>>) {
 
 impl NTServer {
     pub fn new() -> Arc<Mutex<NTServer>> {
-        let _self = Arc::new(Mutex::new(NTServer { clients: HashMap::new(), entries: HashMap::new(), pub_count: HashMap::new() }));
+        let _self = Arc::new(Mutex::new(NTServer {
+            clients: HashMap::new(),
+            entries: HashMap::new(),
+            pub_count: HashMap::new(),
+        }));
 
         let (tx, rx) = channel(32);
 
