@@ -6,6 +6,7 @@ mod entry;
 mod error;
 mod net;
 mod server;
+mod util;
 
 fn main() {
     env_logger::init();

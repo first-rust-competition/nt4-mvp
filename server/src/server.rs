@@ -21,6 +21,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::DerefMut;
 use std::time::Duration;
+use crate::util::batch_messages;
 
 pub static MAX_BATCHING_SIZE: usize = 5;
 
@@ -152,23 +153,19 @@ async fn channel_loop(
                         MessageValue::GetValues(gv) => {
                             let client = state.clients.get(&cid).unwrap();
 
-                            let packets = gv
-                                .ids
-                                .into_iter()
-                                .map(|id| (id, client.id_to_name(id).unwrap()))
-                                .map(|(id, name)| NTBinaryMessage {
+                            let mut updates = Vec::new();
+                            for id in gv.ids {
+                                let name = client.id_to_name(id).unwrap();
+                                let entry = &state.entries[name];
+                                updates.push(NTBinaryMessage {
                                     id,
-                                    timestamp: 0,
-                                    value: state.entries[name].value.clone(),
-                                })
-                                .chunks(MAX_BATCHING_SIZE)
-                                .into_iter()
-                                .map(|batch| NTMessage::Binary(batch.collect()))
-                                .collect::<Vec<NTMessage>>();
-
+                                    timestamp: entry.timestamp,
+                                    value: entry.value.clone()
+                                });
+                            }
                             let client = state.clients.get_mut(&cid).unwrap();
-                            for packet in packets {
-                                client.send_message(packet).await;
+                            for msg in batch_messages(updates, MAX_BATCHING_SIZE) {
+                                client.send_message(msg).await;
                             }
                         }
                         MessageValue::Subscribe(sub) => {
@@ -185,12 +182,7 @@ async fn channel_loop(
                                 }
                             }
 
-                            let batched = updates.into_iter().chunks(MAX_BATCHING_SIZE)
-                                .into_iter()
-                                .map(|batch| NTMessage::Binary(batch.collect()))
-                                .collect::<Vec<NTMessage>>();
-
-                            for msg in batched {
+                            for msg in batch_messages(updates, MAX_BATCHING_SIZE) {
                                 client.send_message(msg).await;
                             }
 
@@ -289,12 +281,8 @@ async fn broadcast_loop(state: Arc<Mutex<NTServer>>) {
                 client.queued_updates.clear();
             }
 
-            let batched_updates = updates.into_iter()
-                .chunks(MAX_BATCHING_SIZE)
-                .into_iter().map(|chunk| chunk.collect())
-                .collect::<Vec<Vec<NTBinaryMessage>>>();
-            for msg in batched_updates {
-                client.send_message(NTMessage::Binary(msg)).await;
+            for msg in batch_messages(updates, MAX_BATCHING_SIZE) {
+                client.send_message(msg).await;
             }
         }
     }
