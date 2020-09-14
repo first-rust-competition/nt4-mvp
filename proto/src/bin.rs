@@ -6,7 +6,7 @@
 use crate::ext::*;
 use crate::text::DataType;
 use serde::ser::SerializeSeq;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use rmpv::Value;
 use thiserror::Error;
 
@@ -21,7 +21,7 @@ macro_rules! impl_conversion {
 }
 
 /// A NetworkTables value
-#[derive(PartialEq, Debug, Clone, Serialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum NTValue {
     /// An integer value. This value stores both signed and unsigned integers in an `i64`

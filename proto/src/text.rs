@@ -197,7 +197,10 @@ macro_rules! to_data_body {
     ($self:ident, $($ty:ident),+) => {
         match $self._type {
             $(
-            MessageType::$ty => MessageValue::$ty(serde_json::from_value::<$ty>($self.data).unwrap()),
+            MessageType::$ty => match serde_json::from_value::<$ty>($self.data) {
+                Ok(value) => Ok(MessageValue::$ty(value)),
+                Err(e) => Err(e),
+            }
             )+
         }
     }
@@ -209,7 +212,7 @@ impl NTTextMessage {
     /// Returns the value wrapped inside the [`MessageValue`] enum.
     ///
     /// [`MessageValue`]: ./enum.MessageValue.html
-    pub fn data(self) -> MessageValue {
+    pub fn data(self) -> serde_json::Result<MessageValue> {
         use self::directory::*;
         use self::publish::*;
         use self::subscription::*;

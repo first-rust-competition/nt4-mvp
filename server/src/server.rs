@@ -18,6 +18,8 @@ use broadcast::*;
 
 mod loop_;
 use loop_::*;
+use crate::persist::restore_persistent;
+use proto::prelude::publish::SetFlags;
 
 pub static MAX_BATCHING_SIZE: usize = 5;
 
@@ -99,19 +101,60 @@ impl NTServer {
     /// Creates a new instance of an NT4 server, and spawns all the tasks that
     /// run indefinitely that are associated with it
     pub fn new() -> Arc<Mutex<NTServer>> {
-        let _self = Arc::new(Mutex::new(NTServer {
-            clients: HashMap::new(),
-            entries: HashMap::new(),
-            pub_count: HashMap::new(),
-        }));
+        let _self = match restore_persistent() {
+            Ok(entries) => {
+                log::info!("Reloaded persistent entries {:?}", entries);
+                let mut pub_count = HashMap::new();
+                for key in entries.keys() {
+                    pub_count.insert(key.clone(), 1);
+                }
+                Arc::new(Mutex::new(NTServer {
+                    clients: HashMap::new(),
+                    entries,
+                    pub_count
+                }))
+            }
+            Err(_) => Arc::new(Mutex::new(NTServer {
+                clients: HashMap::new(),
+                entries: HashMap::new(),
+                pub_count: HashMap::new()
+            }))
+        };
 
         let (tx, rx) = channel(32);
 
         task::spawn(tcp_loop(_self.clone(), tx));
         task::spawn(channel_loop(_self.clone(), rx));
         task::spawn(broadcast_loop(_self.clone()));
+        task::spawn(flush_persistent_loop(_self.clone()));
 
         _self
+    }
+
+    pub fn update_flags(&mut self, set: SetFlags) {
+        let entry = self.entries.get_mut(&set.name).unwrap();
+        let was_persistent = entry.flags.contains(&"persistent".to_string());
+
+        for flag in set.add {
+            entry.flags.push(flag);
+        }
+
+        for flag in set.remove {
+            if let Some((idx, _)) = entry.flags.iter().find_position(|_flag| **_flag == flag) {
+                entry.flags.remove(idx);
+            }
+        }
+
+        let is_persistent = entry.flags.contains(&"persistent".to_string());
+
+        // Update publisher count to account for persistent entries
+        if !was_persistent && is_persistent {
+            let cnt = self.pub_count.get_mut(&set.name).unwrap();
+            *cnt += 1;
+        } else if was_persistent && !is_persistent {
+            let cnt = self.pub_count.get_mut(&set.name).unwrap();
+            *cnt -= 1;
+        }
     }
 
     /// Creates a new entry in response to a PublishReq message

@@ -6,6 +6,7 @@ mod error;
 mod net;
 mod server;
 mod util;
+mod persist;
 
 fn main() {
     env_logger::init();

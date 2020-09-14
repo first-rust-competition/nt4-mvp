@@ -1,7 +1,8 @@
 use proto::prelude::{DataType, NTValue};
 use crate::client::TopicSnapshot;
+use serde::{Serialize, Deserialize};
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Topic {
     pub name: String,
     pub value: NTValue,

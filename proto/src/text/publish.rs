@@ -9,14 +9,13 @@ use serde::{Deserialize, Serialize};
 ///
 /// Sent from a client to a server to indicate the client wishes to start publishing values at the given NetworkTables key
 ///
-/// The server will respond to this with the [`PublishAck`] message. Once that is received, a client can start publishing values
-/// over CBOR with the given ID.
+/// The server will respond with an [`Announce`] message that contains the ID the client can use to publish this value
 ///
 /// When the client no longer wishes to publish to this key, it can send the [`PublishRel`] message to indicate that to the server.
 /// This also allows the client to delete the value, if it wishes.
 ///
-/// [`PublishAck`]: ./struct.PublishAck.html
 /// [`PublishRel`]: ./struct.PublishRel.html
+/// [`Announce`]: ../directory/struct.Announce.html
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct PublishReq {
     /// The NetworkTables key
