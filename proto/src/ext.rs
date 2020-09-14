@@ -1,7 +1,7 @@
-use std::io::{Read, ErrorKind};
-use rmpv::Value;
-use rmpv::decode::read_value;
 use crate::bin::DecodeError;
+use rmpv::decode::read_value;
+use rmpv::{Integer, Value};
+use std::io::{ErrorKind, Read};
 
 macro_rules! gen_funcs {
     ($($func_name:ident => ($value:ident,$prim:ident)),+) => {
@@ -19,23 +19,24 @@ macro_rules! gen_funcs {
 pub trait ValueExt: Sized {
     fn as_integer(&self) -> Option<i64>;
     fn as_f32(&self) -> Option<f32>;
-    fn as_f64(&self) -> Option<f64>;
-    fn as_bool(&self) -> Option<bool>;
     fn as_bytes(&self) -> Option<Vec<u8>>;
     fn as_text(&self) -> Option<String>;
 }
 
 impl ValueExt for Value {
-    gen_funcs!(
-        as_f64 => (F64,f64),
-        as_f32 => (F32, f32),
-        as_bool => (Boolean,bool)
-    );
-
     fn as_integer(&self) -> Option<i64> {
         match self {
             Value::Integer(i) => i.as_i64().or_else(|| i.as_u64().map(|i| i as i64)),
-            _ => None
+            _ => None,
+        }
+    }
+
+    fn as_f32(&self) -> Option<f32> {
+        match self {
+            Value::F32(f) => Some(*f),
+            Value::F64(f) => Some(*f as f32),
+            Value::Integer(i) => i.as_f64().map(|f| f as f32),
+            _ => None,
         }
     }
 
@@ -49,7 +50,7 @@ impl ValueExt for Value {
     fn as_text(&self) -> Option<String> {
         match self {
             Value::String(s) => s.as_str().map(|s| s.to_string()),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -60,9 +61,7 @@ pub struct MsgpackStreamIterator<R: Read> {
 
 impl<R: Read> MsgpackStreamIterator<R> {
     pub fn new(rd: R) -> MsgpackStreamIterator<R> {
-        MsgpackStreamIterator {
-            rd
-        }
+        MsgpackStreamIterator { rd }
     }
 }
 
@@ -74,10 +73,12 @@ impl<R: Read> Iterator for MsgpackStreamIterator<R> {
 
         match result {
             Ok(v) => Some(Ok(v)),
-            Err(e) => if e.kind() == ErrorKind::UnexpectedEof {
-                None
-            } else {
-                Some(Err(e.into()))
+            Err(e) => {
+                if e.kind() == ErrorKind::UnexpectedEof {
+                    None
+                } else {
+                    Some(Err(e.into()))
+                }
             }
         }
     }

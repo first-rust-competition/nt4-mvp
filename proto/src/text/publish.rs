@@ -46,7 +46,7 @@ pub struct SetFlags {
     /// The flags the client wishes to add
     pub add: Vec<String>,
     /// The flags the client wishes to remove
-    pub remove: Vec<String>
+    pub remove: Vec<String>,
 }
 
 impl_message!(PublishReq, SetFlags, PublishRel);

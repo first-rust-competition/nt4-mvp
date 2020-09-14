@@ -7,9 +7,7 @@ use async_std::task;
 use async_tungstenite::tungstenite::handshake::server::{Request, Response};
 use async_tungstenite::tungstenite::http::{HeaderValue, StatusCode};
 use itertools::Itertools;
-use proto::prelude::{
-    DataType, MessageBody, NTBinaryMessage, NTMessage, NTTextMessage,
-};
+use proto::prelude::{DataType, MessageBody, NTBinaryMessage, NTMessage, NTTextMessage};
 use std::collections::HashMap;
 use std::ops::DerefMut;
 
@@ -17,8 +15,8 @@ mod broadcast;
 use broadcast::*;
 
 mod loop_;
-use loop_::*;
 use crate::persist::restore_persistent;
+use loop_::*;
 use proto::prelude::publish::SetFlags;
 
 pub static MAX_BATCHING_SIZE: usize = 5;
@@ -111,14 +109,14 @@ impl NTServer {
                 Arc::new(Mutex::new(NTServer {
                     clients: HashMap::new(),
                     entries,
-                    pub_count
+                    pub_count,
                 }))
             }
             Err(_) => Arc::new(Mutex::new(NTServer {
                 clients: HashMap::new(),
                 entries: HashMap::new(),
-                pub_count: HashMap::new()
-            }))
+                pub_count: HashMap::new(),
+            })),
         };
 
         let (tx, rx) = channel(32);

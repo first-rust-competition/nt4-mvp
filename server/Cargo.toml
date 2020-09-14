@@ -23,3 +23,4 @@ env_logger = "0.7.1"
 rmp-serde = "0.14.4"
 chrono = "0.4.15"
 serde = { version = "1.0.116", features = ["derive"] }
+fern = { version = "0.6.0", features = ["colored"] }

@@ -11,17 +11,17 @@
 //!
 //! [`broadcast_loop`]: ./fn.broadcast_loop.html
 //! [`broadcast_with_period`]: ./fn.broadcast_with_period.html
-use std::sync::Arc;
-use async_std::sync::{Mutex, Receiver};
+use crate::client::Subscription;
 use crate::server::{NTServer, MAX_BATCHING_SIZE};
-use std::time::Duration;
-use futures::StreamExt;
+use crate::util::batch_messages;
+use async_std::sync::{Mutex, Receiver};
 use futures::future::{select, Either};
-use std::ops::DerefMut;
+use futures::StreamExt;
 use itertools::Itertools;
 use proto::prelude::NTBinaryMessage;
-use crate::util::batch_messages;
-use crate::client::Subscription;
+use std::ops::DerefMut;
+use std::sync::Arc;
+use std::time::Duration;
 
 /// Broadcasts topic updates associated with a specific subscription on a custom loop period
 ///
@@ -30,7 +30,12 @@ use crate::client::Subscription;
 /// and the send half of `rx` is dropped.
 ///
 /// [`Subscription`]: ../../client/struct.Subscription.html
-pub async fn broadcast_with_period(state: Arc<Mutex<NTServer>>, cid: u32, sub: Subscription, mut rx: Receiver<()>) {
+pub async fn broadcast_with_period(
+    state: Arc<Mutex<NTServer>>,
+    cid: u32,
+    sub: Subscription,
+    mut rx: Receiver<()>,
+) {
     let mut interval = async_std::stream::interval(Duration::from_secs_f64(sub.periodic));
 
     let mut end = rx.next();
@@ -38,7 +43,6 @@ pub async fn broadcast_with_period(state: Arc<Mutex<NTServer>>, cid: u32, sub: S
     loop {
         match select(interval.next(), end).await {
             Either::Left((Some(()), end_cnt)) => {
-                log::info!("Custom broadcast interval triggered");
                 end = end_cnt;
                 let mut state = state.lock().await;
                 let state = state.deref_mut();
@@ -47,26 +51,33 @@ pub async fn broadcast_with_period(state: Arc<Mutex<NTServer>>, cid: u32, sub: S
 
                 let mut updates = Vec::new();
                 let mut names = Vec::new();
-                log::info!("Queued updates: {:?}", client.queued_updates);
-                for (name, group) in &client.queued_updates.iter()
-                    .filter(|snapshot| sub.prefixes.iter().any(|prefix| snapshot.name.starts_with(prefix)))
-                    .group_by(|snapshot| &snapshot.name) {
-
+                for (name, group) in &client
+                    .queued_updates
+                    .iter()
+                    .filter(|snapshot| {
+                        sub.prefixes
+                            .iter()
+                            .any(|prefix| snapshot.name.starts_with(prefix))
+                    })
+                    .group_by(|snapshot| &snapshot.name)
+                {
                     if sub.logging {
                         // Subscribers with this option need to receive every
                         for update in group {
                             updates.push(NTBinaryMessage {
                                 id: client.lookup_id(name).unwrap(),
                                 timestamp: update.timestamp,
-                                value: update.value.clone()
+                                value: update.value.clone(),
                             });
                         }
                     } else {
-                        let snapshot = group.max_by(|s1, s2| s1.timestamp.cmp(&s2.timestamp)).unwrap();
+                        let snapshot = group
+                            .max_by(|s1, s2| s1.timestamp.cmp(&s2.timestamp))
+                            .unwrap();
                         updates.push(NTBinaryMessage {
                             id: client.lookup_id(name).unwrap(),
                             timestamp: snapshot.timestamp,
-                            value: snapshot.value.clone()
+                            value: snapshot.value.clone(),
                         })
                     }
 
@@ -78,7 +89,12 @@ pub async fn broadcast_with_period(state: Arc<Mutex<NTServer>>, cid: u32, sub: S
                 }
 
                 for name in names {
-                    while let Some((idx, _)) = client.queued_updates.iter().enumerate().find(|(_, topic)| topic.name == name) {
+                    while let Some((idx, _)) = client
+                        .queued_updates
+                        .iter()
+                        .enumerate()
+                        .find(|(_, topic)| topic.name == name)
+                    {
                         client.queued_updates.remove(idx);
                     }
                 }
@@ -87,7 +103,11 @@ pub async fn broadcast_with_period(state: Arc<Mutex<NTServer>>, cid: u32, sub: S
         }
     }
 
-    log::info!("Terminating custom loop for CID {}. (Had period {})", cid, sub.periodic);
+    log::info!(
+        "Terminating custom loop for CID {}. (Had period {})",
+        cid,
+        sub.periodic
+    );
 }
 
 /// Broadcast topic updates associated with all subscriptions on the default update period
@@ -103,32 +123,38 @@ pub async fn broadcast_loop(state: Arc<Mutex<NTServer>>) {
 
         for client in state.clients.values_mut() {
             let mut updates = Vec::new();
-            for (_, sub)in &client.subs {
+            for (_, sub) in &client.subs {
                 if sub.periodic != 0.1 {
                     continue;
                 }
                 if sub.logging {
                     // Subscribers with this option need to receive every
-                    for (name, group) in &client.queued_updates.iter()
+                    for (name, group) in &client
+                        .queued_updates
+                        .iter()
                         .group_by(|snapshot| &snapshot.name)
                     {
                         for update in group {
                             updates.push(NTBinaryMessage {
                                 id: client.lookup_id(name).unwrap(),
                                 timestamp: update.timestamp,
-                                value: update.value.clone()
+                                value: update.value.clone(),
                             });
                         }
                     }
                 } else {
-                    for (name, group) in &client.queued_updates.iter()
+                    for (name, group) in &client
+                        .queued_updates
+                        .iter()
                         .group_by(|snapshot| &snapshot.name)
                     {
-                        let snapshot = group.max_by(|s1, s2| s1.timestamp.cmp(&s2.timestamp)).unwrap();
+                        let snapshot = group
+                            .max_by(|s1, s2| s1.timestamp.cmp(&s2.timestamp))
+                            .unwrap();
                         updates.push(NTBinaryMessage {
                             id: client.lookup_id(name).unwrap(),
                             timestamp: snapshot.timestamp,
-                            value: snapshot.value.clone()
+                            value: snapshot.value.clone(),
                         })
                     }
                 }

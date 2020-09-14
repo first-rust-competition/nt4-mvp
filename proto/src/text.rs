@@ -1,9 +1,9 @@
+use crate::bin::NTValue;
 use crate::text::directory::*;
 use crate::text::publish::*;
 use crate::text::subscription::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use crate::bin::NTValue;
 
 macro_rules! impl_message {
     ($($name:ident),+) => {
@@ -254,7 +254,7 @@ mod tests {
         let msg = SetFlags {
             name: "/foo".to_string(),
             add: vec!["persistent".to_string()],
-            remove: vec!["bolb".to_string()]
+            remove: vec!["bolb".to_string()],
         };
 
         assert_eq!(

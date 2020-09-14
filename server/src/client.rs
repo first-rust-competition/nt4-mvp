@@ -81,7 +81,7 @@ impl ConnectedClient {
             pub_ids: HashMap::new(),
             queued_updates: Vec::new(),
             next_pub_id: 1,
-            pubs: Vec::new()
+            pubs: Vec::new(),
         }
     }
 
@@ -92,7 +92,8 @@ impl ConnectedClient {
     }
 
     pub fn subscription(&self, name: &str) -> Option<&Subscription> {
-        self.subs.values()
+        self.subs
+            .values()
             .find(|sub| sub.prefixes.iter().any(|prefix| name.starts_with(prefix)))
     }
 
@@ -131,7 +132,7 @@ impl ConnectedClient {
         let mut sub = Subscription {
             prefixes: packet.prefixes,
             immediate: false,
-            periodic: 0.0,
+            periodic: 0.1,
             logging: false,
         };
 

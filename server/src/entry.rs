@@ -1,6 +1,6 @@
-use proto::prelude::{DataType, NTValue};
 use crate::client::TopicSnapshot;
-use serde::{Serialize, Deserialize};
+use proto::prelude::{DataType, NTValue};
+use serde::{Deserialize, Serialize};
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Topic {
@@ -29,7 +29,7 @@ impl Topic {
         TopicSnapshot {
             name: self.name.clone(),
             value: self.value.clone(),
-            timestamp: self.timestamp
+            timestamp: self.timestamp,
         }
     }
 

@@ -23,7 +23,7 @@ pub mod prelude {
         /// A Msgpack-encoded data stream framed as WS BIN
         Binary(Vec<NTBinaryMessage>),
         /// A WS CLOSE frame
-        Close
+        Close,
     }
 
     impl NTMessage {

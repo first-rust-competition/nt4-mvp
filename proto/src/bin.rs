@@ -5,9 +5,9 @@
 
 use crate::ext::*;
 use crate::text::DataType;
-use serde::ser::SerializeSeq;
-use serde::{Serialize, Deserialize};
 use rmpv::Value;
+use serde::ser::SerializeSeq;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 macro_rules! impl_conversion {
@@ -120,12 +120,12 @@ impl Serialize for NTBinaryMessage {
     where
         S: serde::Serializer,
     {
-       let mut seq = serializer.serialize_seq(Some(4))?;
-       seq.serialize_element(&self.id)?;
-       seq.serialize_element(&self.timestamp)?;
-       seq.serialize_element::<u8>(&self.value.data_type().into())?;
-       seq.serialize_element(&self.value)?;
-       seq.end()
+        let mut seq = serializer.serialize_seq(Some(4))?;
+        seq.serialize_element(&self.id)?;
+        seq.serialize_element(&self.timestamp)?;
+        seq.serialize_element::<u8>(&self.value.data_type().into())?;
+        seq.serialize_element(&self.value)?;
+        seq.end()
     }
 }
 
@@ -185,7 +185,7 @@ impl NTBinaryMessage {
                                 messages.push(Err(DecodeError::InvalidId(values[0].clone())));
                                 continue;
                             }
-                        }
+                        },
                         val => {
                             messages.push(Err(DecodeError::InvalidId(val.clone())));
                             continue;
@@ -196,13 +196,13 @@ impl NTBinaryMessage {
                         Value::Integer(ts) => match ts.as_u64() {
                             Some(ts) => ts,
                             None => {
-                                messages.push(Err(DecodeError::InvalidTimestamp(values[1].clone())));
+                                messages
+                                    .push(Err(DecodeError::InvalidTimestamp(values[1].clone())));
                                 continue;
                             }
-                        }
+                        },
                         value => {
-                            messages
-                                .push(Err(DecodeError::InvalidTimestamp(value.clone())));
+                            messages.push(Err(DecodeError::InvalidTimestamp(value.clone())));
                             continue;
                         }
                     };
@@ -223,12 +223,15 @@ impl NTBinaryMessage {
                                 19 => DataType::FloatArray,
                                 20 => DataType::StringArray,
                                 ty => {
-                                    messages.push(Err(DecodeError::InvalidTypeFieldValue(ty as u8)));
+                                    messages
+                                        .push(Err(DecodeError::InvalidTypeFieldValue(ty as u8)));
                                     continue;
                                 }
-                            }
+                            },
                             None => {
-                                messages.push(Err(DecodeError::InvalidTypeFieldType(values[2].clone())));
+                                messages.push(Err(DecodeError::InvalidTypeFieldType(
+                                    values[2].clone(),
+                                )));
                                 continue;
                             }
                         },
@@ -243,9 +246,7 @@ impl NTBinaryMessage {
                         DataType::Integer => {
                             unpack_value!(messages => raw_value, as_integer, Integer)
                         }
-                        DataType::Boolean => {
-                            unpack_value!(messages => raw_value, as_bool, Boolean)
-                        }
+                        DataType::Boolean => unpack_value!(messages => raw_value, as_bool, Boolean),
                         DataType::Raw => unpack_value!(messages => raw_value, as_bytes, Raw),
                         DataType::RPC => unpack_value!(messages => raw_value, as_bytes, RPC),
                         DataType::String => unpack_value!(messages => raw_value, as_text, String),
@@ -260,7 +261,9 @@ impl NTBinaryMessage {
                         DataType::IntegerArray => {
                             unpack_array!((messages, ty, 'outer) => raw_value, as_integer, IntegerArray)
                         }
-                        DataType::FloatArray => unpack_array!((messages, ty, 'outer) => raw_value, as_f32, FloatArray),
+                        DataType::FloatArray => {
+                            unpack_array!((messages, ty, 'outer) => raw_value, as_f32, FloatArray)
+                        }
                         DataType::DoubleArray => {
                             unpack_array!((messages, ty, 'outer) => raw_value, as_f64, DoubleArray)
                         }
@@ -289,9 +292,7 @@ mod tests {
     #[test]
     fn test_single_message_stream() {
         let data = vec![
-            0x94, 0x2a, 0xce, 0x49,
-            0x96, 0x02, 0xd2, 0x10,
-            0x93, 0xc3, 0xc2, 0xc3
+            0x94, 0x2a, 0xce, 0x49, 0x96, 0x02, 0xd2, 0x10, 0x93, 0xc3, 0xc2, 0xc3,
         ];
 
         let messages = NTBinaryMessage::from_slice(&data[..]);
@@ -311,17 +312,11 @@ mod tests {
     fn test_multi_message_stream() {
         let data = vec![
             // ITEM 1
-            0x94, 0x2a, 0xce, 0x49,
-            0x96, 0x02, 0xd2, 0x10,
-            0x93, 0xc3, 0xc2, 0xc3,
+            0x94, 0x2a, 0xce, 0x49, 0x96, 0x02, 0xd2, 0x10, 0x93, 0xc3, 0xc2, 0xc3,
             // ITEM 2
-            0x94, 0x45, 0xcd, 0x04,
-            0xd2, 0x04, 0xa5, 0x48,
-            0x65, 0x6c, 0x6c, 0x6f,
+            0x94, 0x45, 0xcd, 0x04, 0xd2, 0x04, 0xa5, 0x48, 0x65, 0x6c, 0x6c, 0x6f,
             // ITEM 3
-            0x94, 0xcd, 0x01, 0xa4,
-            0xcd, 0x16, 0x2e, 0x12,
-            0x94, 0x01, 0x02, 0x03, 0x04
+            0x94, 0xcd, 0x01, 0xa4, 0xcd, 0x16, 0x2e, 0x12, 0x94, 0x01, 0x02, 0x03, 0x04,
         ];
 
         let messages = NTBinaryMessage::from_slice(&data[..]);
@@ -360,15 +355,7 @@ mod tests {
 
     #[test]
     fn test_empty_array() {
-        let data = vec![
-            0x94,
-            0x01,
-            0xcd,
-            0x04,
-            0xd2,
-            0x14,
-            0x90
-        ];
+        let data = vec![0x94, 0x01, 0xcd, 0x04, 0xd2, 0x14, 0x90];
 
         let messages = NTBinaryMessage::from_slice(&data[..]);
 
@@ -405,7 +392,10 @@ mod tests {
 
         assert_eq!(
             &v[..],
-            &[0x94, 0x2a, 0xcd, 0x04, 0xd2, 0x01, 0xcb, 0x3f, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            &[
+                0x94, 0x2a, 0xcd, 0x04, 0xd2, 0x01, 0xcb, 0x3f, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00
+            ]
         );
     }
 
@@ -444,9 +434,7 @@ mod tests {
 
     #[test]
     fn test_invalid_message() {
-        let v = vec![
-            0x93, 0x01, 0xa3, 0x66, 0x6f, 0x6f, 0x05
-        ];
+        let v = vec![0x93, 0x01, 0xa3, 0x66, 0x6f, 0x6f, 0x05];
 
         let messages = NTBinaryMessage::from_slice(&v[..]);
 
@@ -459,12 +447,9 @@ mod tests {
     fn test_mixed_messages() {
         let v = vec![
             // ITEM 1
-            0x94, 0x01, 0xcd, 0x10, 0x92, 0x02, 0x05,
-            // ITEM 2
-            0x94, 0x01, 0xcd, 0x10,
-            0x92, 0x02,
-            // Data tagged as int but with FP value
-            0xcb, 0x3f, 0xbf, 0x97, 0x24, 0x74, 0x53, 0x8e, 0xf3
+            0x94, 0x01, 0xcd, 0x10, 0x92, 0x02, 0x05, // ITEM 2
+            0x94, 0x01, 0xcd, 0x10, 0x92, 0x02, // Data tagged as int but with FP value
+            0xcb, 0x3f, 0xbf, 0x97, 0x24, 0x74, 0x53, 0x8e, 0xf3,
         ];
 
         let messages = NTBinaryMessage::from_slice(&v[..]);
