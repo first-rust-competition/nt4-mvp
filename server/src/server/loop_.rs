@@ -214,9 +214,11 @@ pub async fn channel_loop(
                         msg.value
                     );
 
-                    let entry = state.entries.get_mut(name).unwrap();
-                    entry.set_value(msg.value, msg.timestamp);
-                    updates.push(entry.snapshot());
+                    let topic = state.entries.get_mut(name).unwrap();
+                    if topic.timestamp <= msg.timestamp {
+                        topic.set_value(msg.value, msg.timestamp);
+                        updates.push(topic.snapshot());
+                    }
                 }
 
                 for client in state.clients.values_mut() {
