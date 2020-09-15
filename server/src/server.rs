@@ -4,20 +4,26 @@ use crate::net::NTSocket;
 use async_std::net::TcpListener;
 use async_std::sync::{channel, Arc, Mutex, Sender};
 use async_std::task;
+use async_std::io;
 use async_tungstenite::tungstenite::handshake::server::{Request, Response};
 use async_tungstenite::tungstenite::http::{HeaderValue, StatusCode};
 use itertools::Itertools;
 use proto::prelude::{DataType, MessageBody, NTBinaryMessage, NTMessage, NTTextMessage};
 use std::collections::HashMap;
 use std::ops::DerefMut;
+use crate::persist::restore_persistent;
+use proto::prelude::publish::SetFlags;
 
 mod broadcast;
 use broadcast::*;
 
 mod loop_;
-use crate::persist::restore_persistent;
 use loop_::*;
-use proto::prelude::publish::SetFlags;
+
+mod tls;
+use tls::*;
+use async_tungstenite::stream::Stream;
+use std::time::Duration;
 
 pub static MAX_BATCHING_SIZE: usize = 5;
 
@@ -39,9 +45,46 @@ async fn tcp_loop(state: Arc<Mutex<NTServer>>, tx: Sender<ServerMessage>) -> any
     let listener = TcpListener::bind("0.0.0.0:5810").await?;
 
     while let Ok((sock, addr)) = listener.accept().await {
-        log::info!("TCP connection at {}", addr);
+        log::info!("Unsecure TCP connection at {}", addr);
         let cid = rand::random::<u32>();
-        let sock = async_tungstenite::accept_hdr_async(sock, |req: &Request, mut res: Response| {
+        let sock = async_tungstenite::accept_hdr_async(Stream::Plain(sock), |req: &Request, mut res: Response| {
+            let ws_proto = req.headers().iter().find(|(hdr, _)| **hdr == "Sec-WebSocket-Protocol");
+
+            match ws_proto.map(|(_, s)| s.to_str().unwrap()) {
+                Some("networktables.first.wpi.edu") => {
+                    res.headers_mut().insert("Sec-WebSocket-Protocol", HeaderValue::from_static("networktables.first.wpi.edu"));
+                    Ok(res)
+                }
+                _ => {
+                    log::error!("Rejecting client that did not specify correct subprotocol");
+                    Err(Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .body(Some("Protocol 'networktables.first.wpi.edu' required to communicate with this server".to_string()))
+                        .unwrap())
+                }
+            }
+        }).await;
+
+        if let Ok(sock) = sock {
+            log::info!("Client assigned CID {}", cid);
+            let client = ConnectedClient::new(NTSocket::new(sock), tx.clone(), cid);
+            state.lock().await.clients.insert(cid, client);
+            task::spawn(update_new_client(cid, state.clone()));
+        }
+    }
+    Ok(())
+}
+
+async fn tls_loop(state: Arc<Mutex<NTServer>>, tx: Sender<ServerMessage>) -> anyhow::Result<()> {
+    let listener = TcpListener::bind("0.0.0.0:5811").await?;
+    let acceptor = generate_acceptor();
+
+    while let Ok((sock, addr)) = listener.accept().await {
+        log::info!("Secure TCP connection at {}", addr);
+        let cid = rand::random::<u32>();
+        let sock = acceptor.accept(sock).await?;
+        log::info!("TLS handshake completed");
+        let sock = async_tungstenite::accept_hdr_async(Stream::Tls(sock), |req: &Request, mut res: Response| {
             let ws_proto = req.headers().iter().find(|(hdr, _)| **hdr == "Sec-WebSocket-Protocol");
 
             match ws_proto.map(|(_, s)| s.to_str().unwrap()) {
@@ -121,7 +164,8 @@ impl NTServer {
 
         let (tx, rx) = channel(32);
 
-        task::spawn(tcp_loop(_self.clone(), tx));
+        task::spawn(tcp_loop(_self.clone(), tx.clone()));
+        task::spawn(tls_loop(_self.clone(), tx));
         task::spawn(channel_loop(_self.clone(), rx));
         task::spawn(broadcast_loop(_self.clone()));
         task::spawn(flush_persistent_loop(_self.clone()));

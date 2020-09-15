@@ -6,13 +6,16 @@ use futures::prelude::*;
 use futures_util::core_reexport::pin::Pin;
 use futures_util::core_reexport::task::{Context, Poll};
 use proto::prelude::*;
+use async_tls::server::TlsStream;
+
+type MaybeTlsStream = WebSocketStream<async_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>;
 
 pub struct NTSocket {
-    sock: WebSocketStream<TcpStream>,
+    sock: MaybeTlsStream,
 }
 
 impl NTSocket {
-    pub fn new(sock: WebSocketStream<TcpStream>) -> NTSocket {
+    pub fn new(sock: MaybeTlsStream) -> NTSocket {
         NTSocket { sock }
     }
 }

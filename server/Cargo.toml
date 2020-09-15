@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 async-std = { version = "1.6.3", features = ["unstable"] }
-async-tungstenite = "0.8.0"
+async-tungstenite = { version = "0.8.0", features = ["async-tls"] }
 serde_json = "1.0.57"
 proto = { path = "../proto" }
 futures-util = "0.3.5"
@@ -24,3 +24,5 @@ rmp-serde = "0.14.4"
 chrono = "0.4.15"
 serde = { version = "1.0.116", features = ["derive"] }
 fern = { version = "0.6.0", features = ["colored"] }
+async-tls = "0.10.0"
+rustls = "0.18.1"
