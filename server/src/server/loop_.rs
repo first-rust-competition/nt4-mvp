@@ -85,6 +85,7 @@ pub async fn channel_loop(
                 }
             }
             ServerMessage::ControlMessage(msg, cid) => {
+                log::info!("Received WS TEXT frame: {:#?}", msg);
                 let mut state = state_lock.lock().await;
                 let state = state.deref_mut();
 
