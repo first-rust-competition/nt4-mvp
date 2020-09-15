@@ -62,7 +62,13 @@ async fn tcp_loop(state: Arc<Mutex<NTServer>>, tx: Sender<ServerMessage>) -> any
 
 async fn tls_loop(state: Arc<Mutex<NTServer>>, tx: Sender<ServerMessage>) -> anyhow::Result<()> {
     let listener = TcpListener::bind("0.0.0.0:5811").await?;
-    let acceptor = generate_acceptor();
+    let acceptor = match generate_acceptor() {
+        Ok(acceptor) => acceptor,
+        Err(e) => {
+            log::error!("Unable to initialize TLS port: {}", e);
+            return Ok(());
+        }
+    };
 
     while let Ok((sock, addr)) = listener.accept().await {
         log::info!("Secure TCP connection at {}", addr);
