@@ -1,7 +1,7 @@
 use crate::client::ConnectedClient;
 use crate::entry::Topic;
-use crate::net::NTSocket;
-use async_std::net::TcpListener;
+use crate::net::{NTSocket, MaybeTlsStream};
+use async_std::net::{TcpListener, TcpStream};
 use async_std::sync::{channel, Arc, Mutex, Sender};
 use async_std::task;
 use async_std::io;
@@ -24,6 +24,7 @@ mod tls;
 use tls::*;
 use async_tungstenite::stream::Stream;
 use std::time::Duration;
+use async_tls::server::TlsStream;
 
 pub static MAX_BATCHING_SIZE: usize = 5;
 
@@ -47,23 +48,7 @@ async fn tcp_loop(state: Arc<Mutex<NTServer>>, tx: Sender<ServerMessage>) -> any
     while let Ok((sock, addr)) = listener.accept().await {
         log::info!("Unsecure TCP connection at {}", addr);
         let cid = rand::random::<u32>();
-        let sock = async_tungstenite::accept_hdr_async(Stream::Plain(sock), |req: &Request, mut res: Response| {
-            let ws_proto = req.headers().iter().find(|(hdr, _)| **hdr == "Sec-WebSocket-Protocol");
-
-            match ws_proto.map(|(_, s)| s.to_str().unwrap()) {
-                Some("networktables.first.wpi.edu") => {
-                    res.headers_mut().insert("Sec-WebSocket-Protocol", HeaderValue::from_static("networktables.first.wpi.edu"));
-                    Ok(res)
-                }
-                _ => {
-                    log::error!("Rejecting client that did not specify correct subprotocol");
-                    Err(Response::builder()
-                        .status(StatusCode::BAD_REQUEST)
-                        .body(Some("Protocol 'networktables.first.wpi.edu' required to communicate with this server".to_string()))
-                        .unwrap())
-                }
-            }
-        }).await;
+        let sock = try_accept(Stream::Plain(sock)).await;
 
         if let Ok(sock) = sock {
             log::info!("Client assigned CID {}", cid);
@@ -84,24 +69,7 @@ async fn tls_loop(state: Arc<Mutex<NTServer>>, tx: Sender<ServerMessage>) -> any
         let cid = rand::random::<u32>();
         let sock = acceptor.accept(sock).await?;
         log::info!("TLS handshake completed");
-        let sock = async_tungstenite::accept_hdr_async(Stream::Tls(sock), |req: &Request, mut res: Response| {
-            let ws_proto = req.headers().iter().find(|(hdr, _)| **hdr == "Sec-WebSocket-Protocol");
-
-            match ws_proto.map(|(_, s)| s.to_str().unwrap()) {
-                Some("networktables.first.wpi.edu") => {
-                    res.headers_mut().insert("Sec-WebSocket-Protocol", HeaderValue::from_static("networktables.first.wpi.edu"));
-                    Ok(res)
-                }
-                _ => {
-                    log::error!("Rejecting client that did not specify correct subprotocol");
-                    Err(Response::builder()
-                        .status(StatusCode::BAD_REQUEST)
-                        .body(Some("Protocol 'networktables.first.wpi.edu' required to communicate with this server".to_string()))
-                        .unwrap())
-                }
-            }
-        }).await;
-
+        let sock = try_accept(Stream::Tls(sock)).await;
         if let Ok(sock) = sock {
             log::info!("Client assigned CID {}", cid);
             let client = ConnectedClient::new(NTSocket::new(sock), tx.clone(), cid);
@@ -110,6 +78,26 @@ async fn tls_loop(state: Arc<Mutex<NTServer>>, tx: Sender<ServerMessage>) -> any
         }
     }
     Ok(())
+}
+
+async fn try_accept(stream: Stream<TcpStream, TlsStream<TcpStream>>) -> async_tungstenite::tungstenite::Result<MaybeTlsStream> {
+    async_tungstenite::accept_hdr_async(stream, |req: &Request, mut res: Response| {
+        let ws_proto = req.headers().iter().find(|(hdr, _)| **hdr == "Sec-WebSocket-Protocol");
+
+        match ws_proto.map(|(_, s)| s.to_str().unwrap()) {
+            Some("networktables.first.wpi.edu") => {
+                res.headers_mut().insert("Sec-WebSocket-Protocol", HeaderValue::from_static("networktables.first.wpi.edu"));
+                Ok(res)
+            }
+            _ => {
+                log::error!("Rejecting client that did not specify correct subprotocol");
+                Err(Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Some("Protocol 'networktables.first.wpi.edu' required to communicate with this server".to_string()))
+                    .unwrap())
+            }
+        }
+    }).await
 }
 
 /// This task updates a new client about all topics that currently exist on the server

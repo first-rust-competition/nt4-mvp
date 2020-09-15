@@ -8,7 +8,7 @@ use futures_util::core_reexport::task::{Context, Poll};
 use proto::prelude::*;
 use async_tls::server::TlsStream;
 
-type MaybeTlsStream = WebSocketStream<async_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>;
+pub type MaybeTlsStream = WebSocketStream<async_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>;
 
 pub struct NTSocket {
     sock: MaybeTlsStream,
