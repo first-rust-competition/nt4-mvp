@@ -59,14 +59,14 @@ impl NTValue {
             self,
             Boolean,
             Double,
-            Integer,
+            Int,
             Float,
             String,
             Raw,
             RPC,
             BooleanArray,
             DoubleArray,
-            IntegerArray,
+            IntArray,
             FloatArray,
             StringArray
         )
@@ -212,14 +212,14 @@ impl NTBinaryMessage {
                             Some(i) => match i {
                                 0 => DataType::Boolean,
                                 1 => DataType::Double,
-                                2 => DataType::Integer,
+                                2 => DataType::Int,
                                 3 => DataType::Float,
                                 4 => DataType::String,
                                 5 => DataType::Raw,
                                 6 => DataType::RPC,
                                 16 => DataType::BooleanArray,
                                 17 => DataType::DoubleArray,
-                                18 => DataType::IntegerArray,
+                                18 => DataType::IntArray,
                                 19 => DataType::FloatArray,
                                 20 => DataType::StringArray,
                                 ty => {
@@ -243,7 +243,7 @@ impl NTBinaryMessage {
 
                     let raw_value = &values[3];
                     let value = match ty {
-                        DataType::Integer => {
+                        DataType::Int => {
                             unpack_value!(messages => raw_value, as_integer, Integer)
                         }
                         DataType::Boolean => unpack_value!(messages => raw_value, as_bool, Boolean),
@@ -258,7 +258,7 @@ impl NTBinaryMessage {
                         DataType::StringArray => {
                             unpack_array!((messages, ty, 'outer) => raw_value, as_text, StringArray)
                         }
-                        DataType::IntegerArray => {
+                        DataType::IntArray => {
                             unpack_array!((messages, ty, 'outer) => raw_value, as_integer, IntegerArray)
                         }
                         DataType::FloatArray => {

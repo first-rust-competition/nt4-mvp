@@ -120,7 +120,7 @@ pub enum DataType {
     /// Represents a sequence of bytes representing a String
     String,
     /// Represents a signed 64-bit integer
-    Integer,
+    Int,
     /// Represents an IEEE754 single-precision floating-point number
     Float,
     /// Represents an IEEE754 double-precision floating-point number
@@ -132,8 +132,8 @@ pub enum DataType {
     #[serde(rename = "string[]")]
     StringArray,
     /// Represents an array of Integers
-    #[serde(rename = "integer[]")]
-    IntegerArray,
+    #[serde(rename = "int[]")]
+    IntArray,
     /// Represents an array of Floats
     #[serde(rename = "float[]")]
     FloatArray,
@@ -145,7 +145,7 @@ pub enum DataType {
 impl DataType {
     pub fn default_value(&self) -> NTValue {
         match self {
-            DataType::Integer => NTValue::Integer(0),
+            DataType::Int => NTValue::Integer(0),
             DataType::Boolean => NTValue::Boolean(false),
             DataType::Raw => NTValue::Raw(vec![]),
             DataType::RPC => NTValue::RPC(vec![]),
@@ -154,7 +154,7 @@ impl DataType {
             DataType::Double => NTValue::Double(0.0),
             DataType::BooleanArray => NTValue::BooleanArray(vec![]),
             DataType::StringArray => NTValue::StringArray(vec![]),
-            DataType::IntegerArray => NTValue::IntegerArray(vec![]),
+            DataType::IntArray => NTValue::IntegerArray(vec![]),
             DataType::FloatArray => NTValue::FloatArray(vec![]),
             DataType::DoubleArray => NTValue::DoubleArray(vec![]),
         }
@@ -166,14 +166,14 @@ impl Into<u8> for DataType {
         match self {
             DataType::Boolean => 0,
             DataType::Double => 1,
-            DataType::Integer => 2,
+            DataType::Int => 2,
             DataType::Float => 3,
             DataType::String => 4,
             DataType::Raw => 5,
             DataType::RPC => 6,
             DataType::BooleanArray => 16,
             DataType::DoubleArray => 17,
-            DataType::IntegerArray => 18,
+            DataType::IntArray => 18,
             DataType::FloatArray => 19,
             DataType::StringArray => 20,
         }
@@ -244,7 +244,7 @@ mod tests {
             msg.data(),
             MessageValue::PublishReq(PublishReq {
                 name: "/foo".to_string(),
-                _type: DataType::Integer,
+                _type: DataType::Int,
             })
         );
     }
