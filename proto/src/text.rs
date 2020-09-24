@@ -145,7 +145,7 @@ pub enum DataType {
 impl DataType {
     pub fn default_value(&self) -> NTValue {
         match self {
-            DataType::Int => NTValue::Integer(0),
+            DataType::Int => NTValue::Int(0),
             DataType::Boolean => NTValue::Boolean(false),
             DataType::Raw => NTValue::Raw(vec![]),
             DataType::RPC => NTValue::RPC(vec![]),
@@ -154,7 +154,7 @@ impl DataType {
             DataType::Double => NTValue::Double(0.0),
             DataType::BooleanArray => NTValue::BooleanArray(vec![]),
             DataType::StringArray => NTValue::StringArray(vec![]),
-            DataType::IntArray => NTValue::IntegerArray(vec![]),
+            DataType::IntArray => NTValue::IntArray(vec![]),
             DataType::FloatArray => NTValue::FloatArray(vec![]),
             DataType::DoubleArray => NTValue::DoubleArray(vec![]),
         }

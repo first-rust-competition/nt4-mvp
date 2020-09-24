@@ -25,7 +25,7 @@ macro_rules! impl_conversion {
 #[serde(untagged)]
 pub enum NTValue {
     /// An integer value. This value stores both signed and unsigned integers in an `i64`
-    Integer(i64),
+    Int(i64),
     Float(f32),
     /// A floating-point value. This value represents both single and double precision floats, and is stored in an `f64`
     Double(f64),
@@ -41,7 +41,7 @@ pub enum NTValue {
     /// An Array of booleans
     BooleanArray(Vec<bool>),
     /// An Array of integers
-    IntegerArray(Vec<i64>),
+    IntArray(Vec<i64>),
     FloatArray(Vec<f32>),
     /// An Array of floating-point numbers
     DoubleArray(Vec<f64>),
@@ -244,7 +244,7 @@ impl NTBinaryMessage {
                     let raw_value = &values[3];
                     let value = match ty {
                         DataType::Int => {
-                            unpack_value!(messages => raw_value, as_integer, Integer)
+                            unpack_value!(messages => raw_value, as_integer, Int)
                         }
                         DataType::Boolean => unpack_value!(messages => raw_value, as_bool, Boolean),
                         DataType::Raw => unpack_value!(messages => raw_value, as_bytes, Raw),
@@ -259,7 +259,7 @@ impl NTBinaryMessage {
                             unpack_array!((messages, ty, 'outer) => raw_value, as_text, StringArray)
                         }
                         DataType::IntArray => {
-                            unpack_array!((messages, ty, 'outer) => raw_value, as_integer, IntegerArray)
+                            unpack_array!((messages, ty, 'outer) => raw_value, as_integer, IntArray)
                         }
                         DataType::FloatArray => {
                             unpack_array!((messages, ty, 'outer) => raw_value, as_f32, FloatArray)
@@ -348,7 +348,7 @@ mod tests {
             Some(NTBinaryMessage {
                 id: 420,
                 timestamp: 5678,
-                value: NTValue::IntegerArray(vec![1, 2, 3, 4])
+                value: NTValue::IntArray(vec![1, 2, 3, 4])
             })
         );
     }
@@ -462,7 +462,7 @@ mod tests {
             Some(NTBinaryMessage {
                 id: 1,
                 timestamp: 4242,
-                value: NTValue::Integer(5),
+                value: NTValue::Int(5),
             })
         );
 
@@ -493,11 +493,11 @@ mod tests {
 
         // Integers
         assert_eq!(
-            &rmp_serde::to_vec(&NTValue::Integer(42)).unwrap()[..],
+            &rmp_serde::to_vec(&NTValue::Int(42)).unwrap()[..],
             &[0x2a]
         );
         assert_eq!(
-            &rmp_serde::to_vec(&NTValue::Integer(-42)).unwrap()[..],
+            &rmp_serde::to_vec(&NTValue::Int(-42)).unwrap()[..],
             &[0xd0, 0xd6]
         );
 
@@ -515,7 +515,7 @@ mod tests {
 
         // Arrays
         assert_eq!(
-            &rmp_serde::to_vec(&NTValue::IntegerArray(vec![1, -2, 3, -4])).unwrap()[..],
+            &rmp_serde::to_vec(&NTValue::IntArray(vec![1, -2, 3, -4])).unwrap()[..],
             &[0x94, 0x01, 0xfe, 0x03, 0xfc]
         );
     }
