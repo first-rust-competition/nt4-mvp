@@ -25,6 +25,7 @@ macro_rules! impl_conversion {
 #[serde(untagged)]
 pub enum NTValue {
     /// An integer value. This value stores both signed and unsigned integers in an `i64`
+    #[serde(serialize_with = "integer_serializer")]
     Int(i64),
     Float(f32),
     /// A floating-point value. This value represents both single and double precision floats, and is stored in an `f64`
@@ -47,6 +48,15 @@ pub enum NTValue {
     DoubleArray(Vec<f64>),
     /// An Array of strings
     StringArray(Vec<String>),
+}
+
+pub fn integer_serializer<S: serde::Serializer>(i: &i64, s: S) -> Result<S::Ok, S::Error> {
+    let i = *i;
+    if i > 0 {
+        s.serialize_u64(i as u64)
+    } else {
+        s.serialize_i64(i)
+    }
 }
 
 fn raw_serializer<S: serde::Serializer>(v: &Vec<u8>, s: S) -> Result<S::Ok, S::Error> {
